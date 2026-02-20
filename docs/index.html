@@ -204,6 +204,16 @@
       color: var(--ink-muted);
     }
 
+    ol {
+      margin: 10px 0 0;
+      padding-left: 20px;
+      color: var(--ink-muted);
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
     .note {
       margin-top: 10px;
       padding: 10px 12px;
@@ -249,6 +259,49 @@
       </div>
     </section>
 
+    <section class="card">
+      <h2>First-Time Setup (Novice)</h2>
+      <p>Do these steps once on a new machine. After setup, you only edit input and run the mapper command.</p>
+      <ol>
+        <li>Install Git and Python 3.10+.</li>
+        <li>Clone this repository and create a virtual environment.</li>
+        <li>Install dependencies, then copy the input template.</li>
+      </ol>
+      <div class="grid">
+        <article>
+          <h2>Mac/Linux Setup</h2>
+          <pre id="setup-mac">git clone https://github.com/earlEBI/protein-efo-mapper.git
+cd protein-efo-mapper
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+mkdir -p data final_output
+cp docs/input_template.tsv data/analytes.tsv</pre>
+          <div class="btn-row">
+            <button class="btn primary copy-btn" type="button" data-copy-target="setup-mac">Copy Mac/Linux Setup</button>
+          </div>
+        </article>
+        <article>
+          <h2>Windows PowerShell Setup</h2>
+          <pre id="setup-win">git clone https://github.com/earlEBI/protein-efo-mapper.git
+cd protein-efo-mapper
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+New-Item -ItemType Directory -Force data, final_output | Out-Null
+Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
+          <div class="btn-row">
+            <button class="btn primary copy-btn" type="button" data-copy-target="setup-win">Copy Windows Setup</button>
+          </div>
+        </article>
+      </div>
+      <div class="note">
+        Next: edit <code>data/analytes.tsv</code> with your own IDs (UniProt, gene symbol, gene ID, or protein name).
+      </div>
+    </section>
+
     <section class="grid">
       <article class="card">
         <h2>Input Template</h2>
@@ -275,7 +328,7 @@ Beta-glucosidase 2	protein_name</pre>
   --parallel-mode process \
   --progress</pre>
         <div class="btn-row">
-          <button id="copy-cmd" class="btn primary" type="button">Copy Command</button>
+          <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd">Copy Run Command</button>
         </div>
       </article>
     </section>
@@ -303,22 +356,38 @@ Beta-glucosidase 2	protein_name</pre>
       </article>
     </section>
 
+    <section class="card">
+      <h2>Troubleshooting</h2>
+      <ul>
+        <li><code>python3: command not found</code>: install Python and restart terminal.</li>
+        <li><code>ModuleNotFoundError</code>: activate virtual environment and run <code>python -m pip install -r requirements.txt</code>.</li>
+        <li><code>Authentication failed</code> on push: use GitHub token or SSH key (not account password).</li>
+      </ul>
+    </section>
+
     <footer>
       Last updated <span id="today"></span>
     </footer>
   </main>
   <script>
-    const copyButton = document.getElementById("copy-cmd");
-    const cmd = document.getElementById("map-cmd");
-    copyButton.addEventListener("click", async () => {
-      const text = cmd.textContent.trim();
-      try {
-        await navigator.clipboard.writeText(text);
-        copyButton.textContent = "Copied";
-        setTimeout(() => { copyButton.textContent = "Copy Command"; }, 1200);
-      } catch (_err) {
-        copyButton.textContent = "Copy failed";
-      }
+    document.querySelectorAll(".copy-btn").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const targetId = button.getAttribute("data-copy-target");
+        const target = targetId ? document.getElementById(targetId) : null;
+        if (!target) {
+          return;
+        }
+        const original = button.textContent;
+        const text = target.textContent.trim();
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = "Copied";
+          setTimeout(() => { button.textContent = original; }, 1200);
+        } catch (_err) {
+          button.textContent = "Copy failed";
+          setTimeout(() => { button.textContent = original; }, 1200);
+        }
+      });
     });
 
     const today = new Date();
