@@ -263,9 +263,9 @@
       <h2>First-Time Setup (Novice)</h2>
       <p>Do these steps once on a new machine. After setup, you only edit input and run the mapper command.</p>
       <ol>
-        <li>Install Git and Python 3.10+.</li>
-        <li>Clone this repository and create a virtual environment.</li>
-        <li>Install dependencies, then copy the input template.</li>
+        <li><strong>Install the tools:</strong> install Git and Python 3.10+ first. Git downloads the project from GitHub; Python runs the mapper script.</li>
+        <li><strong>Download the project safely:</strong> clone this repository, then create and activate a virtual environment. This keeps this tool's Python packages separate from other projects.</li>
+        <li><strong>Finish setup:</strong> install required packages and copy the template input file. Then replace template rows with your own protein or gene terms.</li>
       </ol>
       <div class="grid">
         <article>
@@ -350,7 +350,6 @@ Beta-glucosidase 2	protein_name</pre>
       <ul>
         <li><code>python3: command not found</code>: install Python and restart terminal.</li>
         <li><code>ModuleNotFoundError</code>: activate virtual environment and run <code>python -m pip install -r requirements.txt</code>.</li>
-        <li><code>Authentication failed</code> on push: use GitHub token or SSH key (not account password).</li>
       </ul>
     </section>
 
