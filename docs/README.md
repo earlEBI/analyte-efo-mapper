@@ -19,16 +19,47 @@ python -m pip install -r requirements.txt
 cp docs/input_template.tsv data/analytes.tsv
 ```
 
-Run mapping:
+Run mapping (mixed protein + metabolite inputs):
 
 ```bash
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
   --workers 8 \
   --parallel-mode process \
   --progress
+```
+
+Optional: build a metabolite alias resource from online sources first (no local source files required):
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --download-common-sources
+```
+
+Optional: also attempt HMDB download in the same command:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --download-common-sources \
+  --download-hmdb
+```
+
+If HMDB download fails, rerun without `--download-hmdb` (ChEBI + KEGG still build), or provide a local `--hmdb-xml` file.
+
+Then map with it:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --metabolite-aliases skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --entity-type auto
 ```
 
 Optional review queue output:
@@ -39,6 +70,7 @@ Optional review queue output:
   --output final_output/analytes_efo.tsv \
   --review-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
   --workers 8 \
   --parallel-mode process \
   --progress
@@ -54,7 +86,8 @@ Refresh EFO/OBA measurement cache and rebuild index:
   --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --analyte-cache skills/pqtl-measurement-mapper/references/analyte_to_efo_cache.tsv \
-  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv
+  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv \
+  --metabolite-aliases skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv
 ```
 
 Notes:
@@ -90,7 +123,9 @@ Useful optional arguments:
 - `--min-score` minimum score threshold.
 - `--workers` parallel workers.
 - `--name-mode strict|fuzzy` handling for name-like inputs.
+- `--entity-type auto|protein|metabolite` routing/validation mode.
 - `--auto-enrich-uniprot` fetch missing UniProt aliases.
+- `--metabolite-aliases` local metabolite concept aliases for HMDB/ChEBI/KEGG/name resolution.
 - `--unmapped-output` write unresolved rows to a separate TSV.
 - `--review-output` write optional manual-review suggestions (`review_queue.tsv`).
 

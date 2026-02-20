@@ -4,3 +4,5 @@ P14625	accession
 LIPC	gene_symbol
 ENSG00000172137	gene_id
 Beta-glucosidase 2	protein_name
+CHEBI:17234	metabolite_id
+glucose	metabolite_name

@@ -255,7 +255,7 @@
   <main>
     <section class="card">
       <h1>pQTL Measurement Mapper</h1>
-      <p>Maps UniProt accessions, gene symbols, gene IDs, and protein names to measurement terms in EFO and OBA-imported EFO terms.</p>
+      <p>Maps proteins and metabolites (UniProt/gene IDs/names, HMDB/ChEBI/KEGG IDs, synonyms) to measurement terms in EFO and OBA-imported EFO terms.</p>
       <div class="badge-row">
         <span class="badge">EFO + OBA</span>
         <span class="badge">Matrix-aware (plasma &gt; blood &gt; serum)</span>
@@ -319,7 +319,7 @@ Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
         </article>
       </div>
       <div class="note">
-        Next: edit <code>data/analytes.tsv</code> with your own IDs (UniProt, gene symbol, gene ID, or protein name).
+        Next: edit <code>data/analytes.tsv</code> with your own IDs (UniProt, gene symbol, gene ID, protein name, or metabolite IDs/names).
       </div>
     </section>
 
@@ -331,7 +331,9 @@ Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
 Q9ULI3	accession
 LIPC	gene_symbol
 ENSG00000172137	gene_id
-Beta-glucosidase 2	protein_name</pre>
+Beta-glucosidase 2	protein_name
+CHEBI:17234	metabolite_id
+glucose	metabolite_name</pre>
         <div class="btn-row">
           <a class="btn ghost" href="./input_template.tsv" download>Download TSV Template</a>
         </div>
@@ -340,10 +342,12 @@ Beta-glucosidase 2	protein_name</pre>
       <article class="card">
         <h2>Run Mapper</h2>
         <p>Run locally from your project root. Default blood context returns blood/plasma/unlabeled terms (serum excluded).</p>
+        <p><code>--entity-type auto</code> is recommended for mixed inputs. Use <code>--entity-type protein</code> or <code>--entity-type metabolite</code> for single-entity batches.</p>
         <pre id="map-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
   --workers 8 \
   --parallel-mode process \
   --progress</pre>
@@ -351,6 +355,39 @@ Beta-glucosidase 2	protein_name</pre>
           <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd">Copy Run Command</button>
         </div>
       </article>
+    </section>
+
+    <section class="card">
+      <h2>Optional Metabolite Alias Build</h2>
+      <p>For stronger metabolite mapping, build a local alias file from online sources (ChEBI + KEGG) without local source files.</p>
+      <pre id="met-alias-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --download-common-sources</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd">Copy Metabolite Alias Build Command</button>
+      </div>
+      <pre id="met-alias-cmd-hmdb">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --download-common-sources \
+  --download-hmdb</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-hmdb">Copy Download + HMDB Command</button>
+      </div>
+      <div class="note">
+        If HMDB download fails, rerun without <code>--download-hmdb</code> or provide a local <code>--hmdb-xml</code> file.
+      </div>
+      <pre id="map-cmd-met">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --metabolite-aliases skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-met">Copy Map Command With Metabolite Aliases</button>
+      </div>
     </section>
 
     <section class="card">
@@ -391,6 +428,7 @@ Beta-glucosidase 2	protein_name</pre>
   --output final_output/analytes_efo.tsv \
   --review-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
   --workers 8 \
   --parallel-mode process \
   --progress</pre>
@@ -398,7 +436,7 @@ Beta-glucosidase 2	protein_name</pre>
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review">Copy Optional Review Queue Command</button>
       </div>
       <ul>
-        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--auto-enrich-uniprot</code>, <code>--unmapped-output</code>, <code>--review-output</code>.</li>
+        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-output</code>.</li>
       </ul>
     </section>
 
@@ -423,7 +461,8 @@ Beta-glucosidase 2	protein_name</pre>
   --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --analyte-cache skills/pqtl-measurement-mapper/references/analyte_to_efo_cache.tsv \
-  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv</pre>
+  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv \
+  --metabolite-aliases skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="refresh-efo-cmd">Copy Refresh EFO Cache Command</button>
       </div>
