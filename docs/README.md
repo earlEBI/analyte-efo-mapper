@@ -48,6 +48,11 @@ Measurement context usage:
   - `--measurement-context blood --additional-contexts serum`
 - CSF-only:
   - `--measurement-context cerebrospinal_fluid`
+- Free-text context add-on:
+  - `--additional-context-keywords aorta`
+  - `--additional-context-keywords "adipose tissue"`
+- Free-text only filter mode:
+  - `--measurement-context auto --additional-context-keywords aorta`
 
 Useful optional arguments:
 

@@ -375,6 +375,7 @@ Beta-glucosidase 2	protein_name</pre>
         <li><code>--measurement-context plasma</code>: plasma-only context.</li>
         <li><code>--measurement-context blood --additional-contexts serum</code>: blood/plasma plus serum.</li>
         <li><code>--measurement-context cerebrospinal_fluid</code>: CSF-only context.</li>
+        <li><code>--additional-context-keywords &lt;phrase&gt;</code>: free-text add-on (for example <code>aorta</code>, <code>adipose tissue</code>).</li>
       </ul>
       <pre id="map-cmd-plasma">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
@@ -387,6 +388,19 @@ Beta-glucosidase 2	protein_name</pre>
   --progress</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-plasma">Copy Plasma-Only Command</button>
+      </div>
+      <pre id="map-cmd-aorta">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/review_queue.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --measurement-context auto \
+  --additional-context-keywords aorta \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-aorta">Copy Aorta Keyword Command</button>
       </div>
       <ul>
         <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--auto-enrich-uniprot</code>, <code>--unmapped-output</code>.</li>

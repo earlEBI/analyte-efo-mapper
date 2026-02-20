@@ -79,6 +79,7 @@ Cache files used by default:
 - For new IDs, optionally auto-enrich UniProt aliases before mapping.
 - Enforce matrix/tissue context (`blood` by default); explicit non-blood terms (for example cerebrospinal fluid) are rejected unless context is changed.
 - In default `blood` context, serum-specific terms are excluded unless explicitly added with `--additional-contexts serum`.
+- Optional free-text context add-on is available via `--additional-context-keywords` (for example `aorta`).
 
 3. Validate and review
 - Mark `validated` when mapped ID exists in local term index.
@@ -151,6 +152,18 @@ Allow serum alongside blood (optional):
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --measurement-context blood \
   --additional-contexts serum
+```
+
+Free-text context keyword filter (optional):
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py \
+  map \
+  --input data/analytes.tsv \
+  --output data/analytes_efo.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --measurement-context auto \
+  --additional-context-keywords aorta
 ```
 
 Performance tips for large batches:

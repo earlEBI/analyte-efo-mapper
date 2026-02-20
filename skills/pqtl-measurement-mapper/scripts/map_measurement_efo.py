@@ -944,6 +944,7 @@ def init_process_mapper(
     matrix_priority: list[str],
     measurement_context: str,
     additional_contexts: list[str],
+    additional_context_keywords: list[str],
     name_mode: str,
     force_map_best: bool,
     fallback_efo_id: str,
@@ -956,6 +957,7 @@ def init_process_mapper(
         "matrix_priority": matrix_priority,
         "measurement_context": measurement_context,
         "additional_contexts": additional_contexts,
+        "additional_context_keywords": additional_context_keywords,
         "name_mode": name_mode,
         "force_map_best": force_map_best,
         "fallback_efo_id": fallback_efo_id,
@@ -974,6 +976,7 @@ def process_map_one(query_item: tuple[str, str]) -> list[dict[str, str]]:
         matrix_priority=list(PROCESS_MAP_KW["matrix_priority"]),
         measurement_context=str(PROCESS_MAP_KW["measurement_context"]),
         additional_contexts=list(PROCESS_MAP_KW["additional_contexts"]),
+        additional_context_keywords=list(PROCESS_MAP_KW["additional_context_keywords"]),
         name_mode=effective_name_mode(str(PROCESS_MAP_KW["name_mode"]), input_type),
         force_map_best=bool(PROCESS_MAP_KW["force_map_best"]),
         fallback_efo_id=str(PROCESS_MAP_KW["fallback_efo_id"]),
@@ -1024,6 +1027,21 @@ def parse_additional_contexts(raw: str) -> list[str]:
         seen.add(ctx)
         contexts.append(ctx)
     return contexts
+
+
+def parse_additional_context_keywords(raw: str) -> list[str]:
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for token in raw.split(","):
+        key = normalize(token)
+        if not key:
+            continue
+        lowered = norm_key(key)
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        keywords.append(key)
+    return keywords
 
 
 def contains_context_token(text: str, token: str) -> bool:
@@ -1083,14 +1101,32 @@ def allowed_context_tags(measurement_context: str, additional_contexts: list[str
     return allowed
 
 
+def has_additional_context_keyword_match(label: str, synonyms: list[str], context_keywords: list[str]) -> bool:
+    if not context_keywords:
+        return False
+    text = norm_key(" ".join([label] + synonyms))
+    for keyword in context_keywords:
+        if contains_context_token(text, keyword):
+            return True
+    return False
+
+
 def context_compatible(
     label: str,
     synonyms: list[str],
     measurement_context: str,
     additional_contexts: list[str] | tuple[str, ...] = (),
+    additional_context_keywords: list[str] | tuple[str, ...] = (),
 ) -> bool:
+    keyword_list = list(additional_context_keywords)
+    if keyword_list and measurement_context == "auto":
+        return has_additional_context_keyword_match(label, synonyms, keyword_list)
     if measurement_context == "auto":
         return True
+
+    if keyword_list and has_additional_context_keyword_match(label, synonyms, keyword_list):
+        return True
+
     allowed = allowed_context_tags(measurement_context, list(additional_contexts))
     if not allowed:
         return True
@@ -2090,6 +2126,7 @@ def candidates_from_index(
     matrix_priority: list[str],
     measurement_context: str,
     additional_contexts: list[str],
+    additional_context_keywords: list[str],
     name_mode: str,
 ) -> list[Candidate]:
     term_meta: dict[str, dict[str, Any]] = index.get("term_meta", {})
@@ -2182,7 +2219,13 @@ def candidates_from_index(
         cached = context_cache.get(cache_key)
         if cached is not None:
             return cached
-        ok = context_compatible(label, syns, measurement_context, additional_contexts)
+        ok = context_compatible(
+            label,
+            syns,
+            measurement_context,
+            additional_contexts,
+            additional_context_keywords,
+        )
         context_cache[cache_key] = ok
         return ok
 
@@ -2380,6 +2423,7 @@ def map_one(
     matrix_priority: list[str],
     measurement_context: str,
     additional_contexts: list[str],
+    additional_context_keywords: list[str],
     name_mode: str,
     force_map_best: bool,
     fallback_efo_id: str,
@@ -2393,6 +2437,7 @@ def map_one(
         matrix_priority=matrix_priority,
         measurement_context=measurement_context,
         additional_contexts=additional_contexts,
+        additional_context_keywords=additional_context_keywords,
         name_mode=name_mode,
     )
     eligible = [c for c in candidates if c.score >= min_score]
@@ -2500,6 +2545,7 @@ def map_queries(
     matrix_priority: list[str],
     measurement_context: str,
     additional_contexts: list[str],
+    additional_context_keywords: list[str],
     name_mode: str,
     force_map_best: bool,
     fallback_efo_id: str,
@@ -2529,6 +2575,7 @@ def map_queries(
             matrix_priority=matrix_priority,
             measurement_context=measurement_context,
             additional_contexts=additional_contexts,
+            additional_context_keywords=additional_context_keywords,
             name_mode=effective_name_mode(name_mode, input_type),
             force_map_best=force_map_best,
             fallback_efo_id=fallback_efo_id,
@@ -2563,6 +2610,7 @@ def map_queries(
                     matrix_priority,
                     measurement_context,
                     additional_contexts,
+                    additional_context_keywords,
                     name_mode,
                     force_map_best,
                     fallback_efo_id,
@@ -2610,6 +2658,7 @@ def lexical_probe_candidates(
     matrix_priority: list[str],
     measurement_context: str,
     additional_contexts: list[str],
+    additional_context_keywords: list[str],
     name_mode: str,
 ) -> list[Candidate]:
     term_meta: dict[str, dict[str, Any]] = index.get("term_meta", {})
@@ -2647,7 +2696,13 @@ def lexical_probe_candidates(
                 continue
             if not allow_ratio_terms and is_ratio_trait(label, syns):
                 continue
-            if not context_compatible(label, syns, measurement_context, additional_contexts):
+            if not context_compatible(
+                label,
+                syns,
+                measurement_context,
+                additional_contexts,
+                additional_context_keywords,
+            ):
                 continue
             score = similarity_score_prepared(term_lower, term_toks, label, syns)
             if not is_measurement_like(label, syns):
@@ -2687,6 +2742,7 @@ def infer_review_reason(
     matrix_priority: list[str],
     measurement_context: str,
     additional_contexts: list[str],
+    additional_context_keywords: list[str],
     name_mode: str,
     input_type: str = "auto",
 ) -> tuple[str, str, list[str], list[Candidate]]:
@@ -2698,6 +2754,7 @@ def infer_review_reason(
         matrix_priority=matrix_priority,
         measurement_context=measurement_context,
         additional_contexts=additional_contexts,
+        additional_context_keywords=additional_context_keywords,
         name_mode=effective_mode,
     )
     resolved_accessions, used_alias_resolution, ambiguous_alias_resolution = resolve_query_accessions(query, index)
@@ -2732,6 +2789,7 @@ def infer_review_reason(
             matrix_priority=matrix_priority,
             measurement_context="auto",
             additional_contexts=[],
+            additional_context_keywords=[],
             name_mode=effective_mode,
         )
         if any_context_candidates:
@@ -2760,6 +2818,7 @@ def infer_review_reason(
         matrix_priority=matrix_priority,
         measurement_context=measurement_context,
         additional_contexts=additional_contexts,
+        additional_context_keywords=additional_context_keywords,
         name_mode=effective_mode,
     )
     if resolved_accessions and probe_candidates:
@@ -2910,6 +2969,7 @@ def write_review_tsv(
     matrix_priority: list[str],
     measurement_context: str,
     additional_contexts: list[str],
+    additional_context_keywords: list[str],
     name_mode: str,
     top_n: int,
 ) -> int:
@@ -2958,6 +3018,7 @@ def write_review_tsv(
                     matrix_priority=matrix_priority,
                     measurement_context=measurement_context,
                     additional_contexts=additional_contexts,
+                    additional_context_keywords=additional_context_keywords,
                     name_mode=name_mode,
                     input_type=input_type,
                 )
@@ -3181,6 +3242,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p_map.add_argument(
+        "--additional-context-keywords",
+        default="",
+        help=(
+            "Optional free-text context keywords/phrases, comma-separated (for example: aorta, "
+            "adipose tissue). Terms matching these phrases are allowed in addition to controlled "
+            "context filters. If --measurement-context auto is used, these keywords become the "
+            "primary context filter."
+        ),
+    )
+    p_map.add_argument(
         "--name-mode",
         choices=["strict", "fuzzy"],
         default="strict",
@@ -3282,6 +3353,7 @@ def main() -> int:
             queries = [query for query, _input_type in query_inputs]
             measurement_context = parse_measurement_context(args.measurement_context)
             additional_contexts = parse_additional_contexts(args.additional_contexts)
+            additional_context_keywords = parse_additional_context_keywords(args.additional_context_keywords)
             index_path = Path(args.index)
             analyte_cache_path = Path(args.analyte_cache)
             uniprot_alias_path = Path(args.uniprot_aliases)
@@ -3331,6 +3403,7 @@ def main() -> int:
                 matrix_priority=parse_matrix_priority(args.matrix_priority),
                 measurement_context=measurement_context,
                 additional_contexts=additional_contexts,
+                additional_context_keywords=additional_context_keywords,
                 name_mode=args.name_mode,
                 force_map_best=args.force_map_best,
                 fallback_efo_id=args.fallback_efo_id,
@@ -3351,6 +3424,7 @@ def main() -> int:
                     matrix_priority=parse_matrix_priority(args.matrix_priority),
                     measurement_context=measurement_context,
                     additional_contexts=additional_contexts,
+                    additional_context_keywords=additional_context_keywords,
                     name_mode=args.name_mode,
                     top_n=max(1, args.review_top_n),
                 )
