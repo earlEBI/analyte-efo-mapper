@@ -106,7 +106,7 @@ Optional broader review queue output:
 
 `final_output/review_queue.tsv` is for manual review of closest unresolved candidates; it is useful but can contain probable mismatches.
 
-Optional triage for withheld candidates in the same run:
+Advanced optional triage for withheld candidates in the same run:
 
 ```bash
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \

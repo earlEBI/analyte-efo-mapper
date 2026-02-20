@@ -445,18 +445,6 @@ glucose	metabolite_name</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-aorta">Copy Aorta Keyword Command</button>
       </div>
-      <pre id="map-cmd-review">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review">Copy Optional Withheld Review Command</button>
-      </div>
       <pre id="map-cmd-review-queue">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
@@ -467,20 +455,7 @@ glucose	metabolite_name</pre>
   --parallel-mode process \
   --progress</pre>
       <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-queue">Copy Optional Review Queue Command</button>
-      </div>
-      <pre id="map-cmd-review-triage">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
-  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-triage">Copy Withheld Triaging Command</button>
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-queue">Copy Optional Full Review Queue Command</button>
       </div>
       <ul>
         <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-output</code>, <code>--review-queue-output</code>, <code>--withheld-triage-output</code>.</li>
@@ -502,6 +477,27 @@ glucose	metabolite_name</pre>
       </ul>
       <div class="note">
         This website is documentation and templates. Mapping runs in your local Python environment.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Advanced: Withheld Triage (Optional)</h2>
+      <p>Use this when you want to prioritize withheld candidates into likely accept/reject buckets for faster manual review.</p>
+      <pre id="map-cmd-review-triage">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv \
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-triage">Copy Advanced Withheld Triage Command</button>
+      </div>
+      <div class="note">
+        Requires <code>--review-output</code> in the same run. This is optional and does not replace human QC.
       </div>
     </section>
 
