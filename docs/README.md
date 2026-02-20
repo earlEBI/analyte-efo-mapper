@@ -38,6 +38,26 @@ Defaults and options:
 - Add serum explicitly with `--additional-contexts serum`.
 - Output IDs are written with underscores (for example `EFO_0802947`).
 
+Measurement context usage:
+
+- Blood default (blood + plasma + unlabeled, excludes serum):
+  - `--measurement-context blood`
+- Plasma-only:
+  - `--measurement-context plasma`
+- Blood plus serum:
+  - `--measurement-context blood --additional-contexts serum`
+- CSF-only:
+  - `--measurement-context cerebrospinal_fluid`
+
+Useful optional arguments:
+
+- `--top-k` number of candidates to keep per input.
+- `--min-score` minimum score threshold.
+- `--workers` parallel workers.
+- `--name-mode strict|fuzzy` handling for name-like inputs.
+- `--auto-enrich-uniprot` fetch missing UniProt aliases.
+- `--unmapped-output` write unresolved rows to a separate TSV.
+
 The published site URL is:
 
 `https://earlebi.github.io/protein-efo-mapper/`

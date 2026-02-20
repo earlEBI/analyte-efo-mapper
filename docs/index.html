@@ -368,6 +368,32 @@ Beta-glucosidase 2	protein_name</pre>
     </section>
 
     <section class="card">
+      <h2>Measurement Context and Optional Arguments</h2>
+      <p>Use <code>--measurement-context</code> to control tissue/matrix filtering and <code>--additional-contexts</code> to opt into extras.</p>
+      <ul>
+        <li><code>--measurement-context blood</code> (default): allows blood + plasma + unlabeled terms, excludes serum.</li>
+        <li><code>--measurement-context plasma</code>: plasma-only context.</li>
+        <li><code>--measurement-context blood --additional-contexts serum</code>: blood/plasma plus serum.</li>
+        <li><code>--measurement-context cerebrospinal_fluid</code>: CSF-only context.</li>
+      </ul>
+      <pre id="map-cmd-plasma">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/review_queue.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --measurement-context plasma \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-plasma">Copy Plasma-Only Command</button>
+      </div>
+      <ul>
+        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--auto-enrich-uniprot</code>, <code>--unmapped-output</code>.</li>
+      </ul>
+    </section>
+
+    <section class="card">
       <h2>Outputs</h2>
       <ul>
         <li><code>final_output/analytes_efo.tsv</code>: main mappings with confidence and validation.</li>

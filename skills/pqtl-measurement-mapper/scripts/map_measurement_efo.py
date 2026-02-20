@@ -3167,8 +3167,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--measurement-context",
         default=DEFAULT_MEASUREMENT_CONTEXT,
         help=(
-            "Expected measurement matrix context: blood, plasma, serum, cerebrospinal_fluid, "
-            "urine, saliva, tissue, or auto (default: blood)"
+            "Primary measurement context: blood, plasma, serum, cerebrospinal_fluid, urine, "
+            "saliva, tissue, or auto (default: blood). Blood context includes blood + plasma "
+            "and excludes serum unless --additional-contexts includes serum."
         ),
     )
     p_map.add_argument(
@@ -3176,7 +3177,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="",
         help=(
             "Optional extra contexts allowed in addition to --measurement-context, comma-separated "
-            "(for example: serum). Default is none; blood context excludes serum unless added here."
+            "(for example: serum or cerebrospinal_fluid). Default is none."
         ),
     )
     p_map.add_argument(
