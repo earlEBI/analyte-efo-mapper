@@ -3941,8 +3941,10 @@ def write_review_tsv(
     name_mode: str,
     entity_type: str,
     top_n: int,
+    reason_code_filter: set[str] | None = None,
 ) -> int:
     pending_rows = [row for row in rows if row.get("validation") != "validated"]
+    allowed_reason_codes = {normalize(code) for code in (reason_code_filter or set()) if normalize(code)}
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "input_query",
@@ -3994,6 +3996,8 @@ def write_review_tsv(
                 )
                 reason_cache[reason_key] = cached_reason
             reason_code, reason, resolved_accessions, suggestions = cached_reason
+            if allowed_reason_codes and normalize(reason_code) not in allowed_reason_codes:
+                continue
             action, guidance = review_action(reason_code)
             identity_key = (query, tuple(resolved_accessions))
             identity = identity_cache.get(identity_key)
@@ -4056,6 +4060,152 @@ def write_review_tsv(
                 )
                 count += 1
     return count
+
+
+def accession_symbol_aliases(accession: str, index: dict[str, Any]) -> set[str]:
+    acc = normalize(accession).upper()
+    if not acc:
+        return set()
+    accession_index = index.get("accession_alias_index", {})
+    aliases = accession_index.get(acc, [])
+    symbols: set[str] = set()
+    for alias in aliases:
+        alias_clean = normalize(alias)
+        if not alias_clean:
+            continue
+        if canonical_accession(alias_clean):
+            continue
+        if is_symbol_like_alias(alias_clean):
+            symbols.add(alias_clean.upper())
+    return symbols
+
+
+def write_withheld_triage_tsv(
+    review_path: Path,
+    triage_path: Path,
+    *,
+    index: dict[str, Any],
+) -> tuple[int, dict[str, int]]:
+    if not review_path.exists():
+        raise FileNotFoundError(
+            f"Review file not found: {review_path}. "
+            "Run map with --review-output first."
+        )
+
+    input_rows: list[dict[str, str]] = []
+    with review_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            if normalize(row.get("suggestion_rank") or "") != "1":
+                continue
+            input_rows.append(row)
+
+    fields = [
+        "input_query",
+        "query_primary_label",
+        "query_subject_hints",
+        "query_primary_accession",
+        "query_primary_symbol",
+        "suggested_efo_id",
+        "suggested_label",
+        "suggested_subject",
+        "suggested_score",
+        "accession_qc_status",
+        "candidate_resolved_accessions",
+        "candidate_resolved_symbols",
+        "same_symbol",
+        "triage_decision",
+        "triage_rationale",
+    ]
+
+    decision_order = {
+        "reject_high": 0,
+        "review_needed": 1,
+        "accept_medium": 2,
+        "accept_high": 3,
+    }
+    decision_counts: dict[str, int] = {}
+    triage_rows: list[dict[str, str]] = []
+
+    for row in input_rows:
+        query_acc = normalize(row.get("query_primary_accession") or "").upper()
+        query_symbol = normalize(row.get("query_primary_symbol") or "").upper()
+        candidate_subject = normalize(row.get("suggested_subject") or row.get("suggested_label") or "")
+
+        resolved_accessions_raw, _used_alias_resolution, _ambiguous_alias_resolution = resolve_query_accessions(
+            candidate_subject,
+            index,
+        )
+        resolved_accessions = sorted(
+            {
+                normalize(accession).upper()
+                for accession in resolved_accessions_raw
+                if normalize(accession)
+            }
+        )
+        resolved_symbols: set[str] = set()
+        for accession in resolved_accessions:
+            resolved_symbols |= accession_symbol_aliases(accession, index)
+
+        if query_acc and resolved_accessions:
+            if query_acc in resolved_accessions:
+                qc_status = "supports_query_accession"
+            else:
+                qc_status = "conflicts_with_query_accession"
+        else:
+            qc_status = "unresolved"
+
+        same_symbol = bool(query_symbol and query_symbol in resolved_symbols)
+
+        if qc_status == "supports_query_accession":
+            triage_decision = "accept_high"
+            triage_rationale = "candidate subject resolves to same accession as query"
+        elif qc_status == "conflicts_with_query_accession" and same_symbol:
+            triage_decision = "accept_medium"
+            triage_rationale = "different accession but same primary gene symbol (likely alias/isoform-equivalent)"
+        elif qc_status == "conflicts_with_query_accession":
+            triage_decision = "reject_high"
+            triage_rationale = "candidate subject resolves to different accession/gene symbol"
+        else:
+            triage_decision = "review_needed"
+            triage_rationale = "candidate subject did not resolve cleanly in local accession alias index"
+
+        decision_counts[triage_decision] = decision_counts.get(triage_decision, 0) + 1
+        triage_rows.append(
+            {
+                "input_query": row.get("input_query", ""),
+                "query_primary_label": row.get("query_primary_label", ""),
+                "query_subject_hints": row.get("query_subject_hints", ""),
+                "query_primary_accession": query_acc,
+                "query_primary_symbol": query_symbol,
+                "suggested_efo_id": row.get("suggested_efo_id", ""),
+                "suggested_label": row.get("suggested_label", ""),
+                "suggested_subject": row.get("suggested_subject", ""),
+                "suggested_score": row.get("suggested_score", ""),
+                "accession_qc_status": qc_status,
+                "candidate_resolved_accessions": "|".join(resolved_accessions),
+                "candidate_resolved_symbols": "|".join(sorted(resolved_symbols)),
+                "same_symbol": "yes" if same_symbol else "no",
+                "triage_decision": triage_decision,
+                "triage_rationale": triage_rationale,
+            }
+        )
+
+    triage_rows.sort(
+        key=lambda row: (
+            decision_order.get(row.get("triage_decision", ""), 9),
+            row.get("input_query", ""),
+            row.get("suggested_efo_id", ""),
+        )
+    )
+
+    triage_path.parent.mkdir(parents=True, exist_ok=True)
+    with triage_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t", extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(triage_rows)
+
+    return len(triage_rows), decision_counts
 
 
 def write_tsv(rows: list[dict[str, str]], path: Path) -> None:
@@ -4485,7 +4635,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p_map.add_argument(
         "--review-output",
-        help="Optional TSV path for non-validated rows with reason codes and review suggestions",
+        help=(
+            "Optional TSV path for candidates withheld from auto-validation "
+            "(reason_code=manual_validation_required)"
+        ),
+    )
+    p_map.add_argument(
+        "--review-queue-output",
+        help=(
+            "Optional TSV path for broader non-validated review queue with reason codes "
+            "and suggestions"
+        ),
+    )
+    p_map.add_argument(
+        "--llm-review-output",
+        help=argparse.SUPPRESS,
+    )
+    p_map.add_argument(
+        "--withheld-triage-output",
+        help=(
+            "Optional TSV path to triage top withheld candidates from --review-output into "
+            "accept/reject/review buckets using accession identity checks"
+        ),
     )
     p_map.add_argument(
         "--review-top-n",
@@ -4617,6 +4788,7 @@ def main() -> int:
             metabolite_alias_path = Path(args.metabolite_aliases)
             term_cache_path = Path(args.term_cache)
             entity_type = normalize_entity_type(args.entity_type)
+            matrix_priority = parse_matrix_priority(args.matrix_priority)
 
             enriched_added = 0
             enriched_failed = 0
@@ -4662,7 +4834,7 @@ def main() -> int:
                 top_k=max(1, args.top_k),
                 min_score=args.min_score,
                 workers=max(1, args.workers),
-                matrix_priority=parse_matrix_priority(args.matrix_priority),
+                matrix_priority=matrix_priority,
                 measurement_context=measurement_context,
                 additional_contexts=additional_contexts,
                 additional_context_keywords=additional_context_keywords,
@@ -4678,13 +4850,43 @@ def main() -> int:
             if args.unmapped_output:
                 unresolved = write_unmapped_tsv(rows, Path(args.unmapped_output))
                 print(f"[OK] wrote {unresolved} unresolved rows to {args.unmapped_output}")
-            if args.review_output:
+            review_output_arg = normalize(args.review_output or "")
+            legacy_llm_review_output_arg = normalize(args.llm_review_output or "")
+            review_output_path: Path | None = None
+            if review_output_arg and legacy_llm_review_output_arg and review_output_arg != legacy_llm_review_output_arg:
+                raise ValueError(
+                    "--review-output and --llm-review-output were both set with different paths; "
+                    "use one path only"
+                )
+            if review_output_arg:
+                review_output_path = Path(args.review_output)
+            elif legacy_llm_review_output_arg:
+                review_output_path = Path(args.llm_review_output)
+                print("[WARN] --llm-review-output is deprecated; use --review-output", file=sys.stderr)
+
+            if review_output_path is not None:
                 review_rows = write_review_tsv(
                     rows,
-                    Path(args.review_output),
+                    review_output_path,
                     index=index,
                     min_score=args.min_score,
-                    matrix_priority=parse_matrix_priority(args.matrix_priority),
+                    matrix_priority=matrix_priority,
+                    measurement_context=measurement_context,
+                    additional_contexts=additional_contexts,
+                    additional_context_keywords=additional_context_keywords,
+                    name_mode=args.name_mode,
+                    entity_type=entity_type,
+                    top_n=max(1, args.review_top_n),
+                    reason_code_filter={"manual_validation_required"},
+                )
+                print(f"[OK] wrote {review_rows} withheld review rows to {review_output_path}")
+            if args.review_queue_output:
+                review_queue_rows = write_review_tsv(
+                    rows,
+                    Path(args.review_queue_output),
+                    index=index,
+                    min_score=args.min_score,
+                    matrix_priority=matrix_priority,
                     measurement_context=measurement_context,
                     additional_contexts=additional_contexts,
                     additional_context_keywords=additional_context_keywords,
@@ -4692,7 +4894,23 @@ def main() -> int:
                     entity_type=entity_type,
                     top_n=max(1, args.review_top_n),
                 )
-                print(f"[OK] wrote {review_rows} review rows to {args.review_output}")
+                print(f"[OK] wrote {review_queue_rows} review-queue rows to {args.review_queue_output}")
+            if args.withheld_triage_output:
+                if review_output_path is None:
+                    raise ValueError("--withheld-triage-output requires --review-output")
+                triage_rows, triage_counts = write_withheld_triage_tsv(
+                    review_output_path,
+                    Path(args.withheld_triage_output),
+                    index=index,
+                )
+                triage_summary = ", ".join(
+                    f"{key}={triage_counts.get(key, 0)}"
+                    for key in ["reject_high", "review_needed", "accept_medium", "accept_high"]
+                )
+                print(
+                    f"[OK] wrote {triage_rows} withheld triage rows to {args.withheld_triage_output} "
+                    f"({triage_summary})"
+                )
             if args.cache_writeback:
                 added = write_back_cache(rows, Path(args.analyte_cache), args.cache_min_confidence)
                 print(f"[OK] cache write-back added {added} entries to {args.analyte_cache}")

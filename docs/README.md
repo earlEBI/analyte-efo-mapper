@@ -19,6 +19,18 @@ python -m pip install -r requirements.txt
 cp docs/input_template.tsv data/analytes.tsv
 ```
 
+Quick Start (5 lines):
+
+```bash
+cp docs/input_template.tsv data/analytes.tsv
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv
+```
+
+This writes your main results to `final_output/analytes_efo.tsv` and withheld items to `final_output/withheld_for_review.tsv`.
+
 Run mapping (mixed protein + metabolite inputs):
 
 ```bash
@@ -62,13 +74,29 @@ Then map with it:
   --entity-type auto
 ```
 
-Optional review queue output:
+Optional withheld-for-review output:
 
 ```bash
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/review_queue.tsv \
+  --review-output final_output/withheld_for_review.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress
+```
+
+`final_output/withheld_for_review.tsv` contains only rows where the top candidate was withheld from auto-validation (`reason_code=manual_validation_required`).
+
+Optional broader review queue output:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-queue-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --entity-type auto \
   --workers 8 \
@@ -77,6 +105,29 @@ Optional review queue output:
 ```
 
 `final_output/review_queue.tsv` is for manual review of closest unresolved candidates; it is useful but can contain probable mismatches.
+
+Optional triage for withheld candidates in the same run:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv \
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress
+```
+
+`final_output/withheld_for_review_triage.tsv` classifies top withheld candidates as:
+
+- `reject_high`: likely wrong target.
+- `review_needed`: unresolved identity, send to manual review.
+- `accept_medium`: accession mismatch but same primary symbol (often alias/isoform-equivalent).
+- `accept_high`: candidate subject resolves to same accession.
+- Includes `query_primary_label` and `suggested_subject` so you can QC full-name alignment directly.
 
 Refresh EFO/OBA measurement cache and rebuild index:
 
@@ -128,7 +179,9 @@ Useful optional arguments:
   - It is incremental for current input queries, not a full UniProt rebuild.
 - `--metabolite-aliases` local metabolite concept aliases for HMDB/ChEBI/KEGG/name resolution.
 - `--unmapped-output` write unresolved rows to a separate TSV.
-- `--review-output` write optional manual-review suggestions (`review_queue.tsv`).
+- `--review-output` write withheld-from-auto-validation rows (`withheld_for_review.tsv`).
+- `--review-queue-output` write optional broader manual-review suggestions (`review_queue.tsv`).
+- `--withheld-triage-output` triage top withheld candidates into accept/reject/review buckets (requires `--review-output`).
 
 The published site URL is:
 

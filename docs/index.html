@@ -264,6 +264,28 @@
     </section>
 
     <section class="card">
+      <h2>Quick Start</h2>
+      <p>If you already have Python and this repo cloned, this is the shortest full workflow.</p>
+      <ol>
+        <li>Edit <code>data/analytes.tsv</code> with your queries.</li>
+        <li>Run the command below.</li>
+        <li>Use <code>analytes_efo.tsv</code> as main output and <code>withheld_for_review.tsv</code> for manual follow-up.</li>
+      </ol>
+      <pre id="quickstart-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn primary copy-btn" type="button" data-copy-target="quickstart-cmd">Copy Quick Start Command</button>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>First-Time Setup (Novice)</h2>
       <p>Do this once on a new machine. Follow the exact steps below even if you have never used Python before.</p>
       <ol>
@@ -426,17 +448,42 @@ glucose	metabolite_name</pre>
       <pre id="map-cmd-review">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/review_queue.tsv \
+  --review-output final_output/withheld_for_review.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --entity-type auto \
   --workers 8 \
   --parallel-mode process \
   --progress</pre>
       <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review">Copy Optional Review Queue Command</button>
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review">Copy Optional Withheld Review Command</button>
+      </div>
+      <pre id="map-cmd-review-queue">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-queue-output final_output/review_queue.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-queue">Copy Optional Review Queue Command</button>
+      </div>
+      <pre id="map-cmd-review-triage">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv \
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-triage">Copy Withheld Triaging Command</button>
       </div>
       <ul>
-        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-output</code>.</li>
+        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-output</code>, <code>--review-queue-output</code>, <code>--withheld-triage-output</code>.</li>
       </ul>
       <div class="note">
         <code>--auto-enrich-uniprot</code> is incremental: it fetches missing aliases only for accession-like queries in your current input, writes them to <code>uniprot_aliases.tsv</code>, then rebuilds the index. It is not a full UniProt rebuild.
@@ -447,7 +494,9 @@ glucose	metabolite_name</pre>
       <h2>Outputs</h2>
       <ul>
         <li><code>final_output/analytes_efo.tsv</code>: main mappings with confidence and validation.</li>
-        <li><code>final_output/review_queue.tsv</code> (optional): manual-review file with closest unresolved candidates; useful suggestions, but many are likely incorrect.</li>
+        <li><code>final_output/withheld_for_review.tsv</code> (optional): only candidates withheld from auto-validation.</li>
+        <li><code>final_output/review_queue.tsv</code> (optional): broader manual-review file with closest unresolved candidates; useful suggestions, but many are likely incorrect.</li>
+        <li><code>final_output/withheld_for_review_triage.tsv</code> (optional): top withheld candidates triaged to <code>reject_high</code>, <code>review_needed</code>, <code>accept_medium</code>, <code>accept_high</code>, with <code>query_primary_label</code> and <code>suggested_subject</code> for full-name QC.</li>
         <li><code>final_output/analytes_unmapped.tsv</code>: optional pure unresolved list.</li>
         <li>Ontology IDs are written with underscores (for example <code>EFO_0802947</code>).</li>
       </ul>
