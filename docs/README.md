@@ -46,6 +46,16 @@ Optional review queue output:
 
 `final_output/review_queue.tsv` is for manual review of closest unresolved candidates; it is useful but can contain probable mismatches.
 
+Refresh EFO/OBA measurement cache and rebuild index:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py refresh-efo-cache \
+  --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --analyte-cache skills/pqtl-measurement-mapper/references/analyte_to_efo_cache.tsv \
+  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv
+```
+
 Defaults and options:
 
 - Default `--measurement-context blood` excludes serum-specific terms.

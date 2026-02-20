@@ -13,6 +13,7 @@ import csv
 import difflib
 import json
 import re
+import subprocess
 import sys
 import urllib.request
 import time
@@ -220,6 +221,9 @@ DEFAULT_ANALYTE_CACHE = Path(__file__).resolve().parents[1] / "references" / "an
 DEFAULT_TERM_CACHE = Path(__file__).resolve().parents[1] / "references" / "efo_measurement_terms_cache.tsv"
 DEFAULT_INDEX = Path(__file__).resolve().parents[1] / "references" / "measurement_index.json"
 DEFAULT_UNIPROT_ALIASES = Path(__file__).resolve().parents[1] / "references" / "uniprot_aliases.tsv"
+DEFAULT_EFO_OBO_URL = "https://github.com/EBISPOT/efo/releases/latest/download/efo.obo"
+DEFAULT_EFO_OBO_LOCAL = Path(__file__).resolve().parents[1] / "references" / "efo.obo"
+DEFAULT_MEASUREMENT_ROOT = "EFO:0001444"
 DEFAULT_MATRIX_PRIORITY = ["plasma", "blood", "serum"]
 DEFAULT_MEASUREMENT_CONTEXT = "blood"
 # Token-retrieved candidates are noisier than exact/synonym matches. Keep them
@@ -3180,6 +3184,47 @@ def write_back_cache(rows: list[dict[str, str]], path: Path, min_confidence: flo
     return new_rows
 
 
+def run_efo_cache_refresh(
+    *,
+    efo_obo: str,
+    download_url: str,
+    download_to: str,
+    measurement_root: str,
+    term_cache: str,
+    source: str,
+    timeout: float,
+) -> None:
+    builder_script = Path(__file__).resolve().parent / "build_efo_measurement_cache.py"
+    if not builder_script.exists():
+        raise FileNotFoundError(f"EFO cache builder script not found: {builder_script}")
+
+    cmd: list[str] = [
+        sys.executable,
+        str(builder_script),
+        "--output",
+        term_cache,
+        "--download-url",
+        download_url,
+        "--download-to",
+        download_to,
+        "--measurement-root",
+        measurement_root,
+        "--source",
+        source,
+        "--timeout",
+        f"{timeout}",
+    ]
+    if normalize(efo_obo):
+        cmd.extend(["--efo-obo", efo_obo])
+
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
+    if proc.stdout:
+        print(proc.stdout.strip())
+    if proc.returncode != 0:
+        stderr_msg = proc.stderr.strip() if proc.stderr else "unknown error"
+        raise RuntimeError(f"EFO cache refresh failed: {stderr_msg}")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Bulk/offline mapper for measurement EFO terms")
     sub = parser.add_subparsers(dest="command")
@@ -3189,6 +3234,68 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_idx.add_argument("--analyte-cache", default=str(DEFAULT_ANALYTE_CACHE), help="Analyte->EFO cache TSV path")
     p_idx.add_argument("--uniprot-aliases", default=str(DEFAULT_UNIPROT_ALIASES), help="UniProt accession alias TSV")
     p_idx.add_argument("--output-index", default=str(DEFAULT_INDEX), help="Output JSON index path")
+
+    p_refresh = sub.add_parser(
+        "refresh-efo-cache",
+        help="Refresh full EFO measurement term cache from OBO and optionally rebuild index",
+    )
+    p_refresh.add_argument(
+        "--term-cache",
+        default=str(DEFAULT_TERM_CACHE),
+        help="Output term cache TSV path",
+    )
+    p_refresh.add_argument(
+        "--efo-obo",
+        default="",
+        help="Optional local EFO OBO path. If omitted, downloads from --download-url",
+    )
+    p_refresh.add_argument(
+        "--download-url",
+        default=DEFAULT_EFO_OBO_URL,
+        help="EFO OBO URL used when --efo-obo is not provided",
+    )
+    p_refresh.add_argument(
+        "--download-to",
+        default=str(DEFAULT_EFO_OBO_LOCAL),
+        help="Local path to save downloaded EFO OBO",
+    )
+    p_refresh.add_argument(
+        "--measurement-root",
+        default=DEFAULT_MEASUREMENT_ROOT,
+        help="Measurement ontology root ID",
+    )
+    p_refresh.add_argument(
+        "--source",
+        default="efo-obo-measurement-branch",
+        help="Source tag written into refreshed term cache rows",
+    )
+    p_refresh.add_argument(
+        "--timeout",
+        type=float,
+        default=60.0,
+        help="Timeout (seconds) for OBO download",
+    )
+    p_refresh.add_argument(
+        "--rebuild-index",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Rebuild local JSON index after cache refresh (default: on)",
+    )
+    p_refresh.add_argument(
+        "--index",
+        default=str(DEFAULT_INDEX),
+        help="JSON index path to build when --rebuild-index is enabled",
+    )
+    p_refresh.add_argument(
+        "--analyte-cache",
+        default=str(DEFAULT_ANALYTE_CACHE),
+        help="Analyte cache TSV used if rebuilding index",
+    )
+    p_refresh.add_argument(
+        "--uniprot-aliases",
+        default=str(DEFAULT_UNIPROT_ALIASES),
+        help="UniProt alias TSV used if rebuilding index",
+    )
 
     p_map = sub.add_parser("map", help="Map queries using local JSON index")
     p_map.add_argument(
@@ -3344,6 +3451,36 @@ def main() -> int:
                 f"analyte_keys={len(index.get('analyte_index', {}))}, "
                 f"accessions={len(index.get('accession_alias_index', {}))})"
             )
+            return 0
+
+        if args.command == "refresh-efo-cache":
+            run_efo_cache_refresh(
+                efo_obo=args.efo_obo,
+                download_url=args.download_url,
+                download_to=args.download_to,
+                measurement_root=args.measurement_root,
+                term_cache=args.term_cache,
+                source=args.source,
+                timeout=args.timeout,
+            )
+            print(f"[OK] refreshed term cache at {args.term_cache}")
+
+            if args.rebuild_index:
+                term_rows = load_term_cache(Path(args.term_cache))
+                analyte_rows = load_analyte_cache(Path(args.analyte_cache))
+                aliases = load_uniprot_aliases(Path(args.uniprot_aliases))
+                index = build_index(
+                    term_rows=term_rows,
+                    analyte_rows=analyte_rows,
+                    accession_aliases=aliases,
+                )
+                save_index(index, Path(args.index))
+                print(
+                    f"[OK] rebuilt index at {args.index} "
+                    f"(terms={len(index.get('term_meta', {}))}, "
+                    f"analyte_keys={len(index.get('analyte_index', {}))}, "
+                    f"accessions={len(index.get('accession_alias_index', {}))})"
+                )
             return 0
 
         if args.command == "map":

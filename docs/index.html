@@ -428,6 +428,19 @@ Beta-glucosidase 2	protein_name</pre>
     </section>
 
     <section class="card">
+      <h2>Refresh EFO Cache (Optional)</h2>
+      <p>Use this when you want to refresh the full EFO/OBA measurement cache and rebuild the local index.</p>
+      <pre id="refresh-efo-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py refresh-efo-cache \
+  --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --analyte-cache skills/pqtl-measurement-mapper/references/analyte_to_efo_cache.tsv \
+  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="refresh-efo-cmd">Copy Refresh EFO Cache Command</button>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>Troubleshooting</h2>
       <ul>
         <li><code>python3: command not found</code>: install Python and restart terminal.</li>

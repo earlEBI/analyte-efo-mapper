@@ -124,6 +124,17 @@ Alternative from a local UniProt export file:
   --output-index skills/pqtl-measurement-mapper/references/measurement_index.json
 ```
 
+Refresh EFO measurement cache and rebuild index (one command):
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py \
+  refresh-efo-cache \
+  --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --analyte-cache skills/pqtl-measurement-mapper/references/analyte_to_efo_cache.tsv \
+  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv
+```
+
 Map in bulk:
 
 ```bash
