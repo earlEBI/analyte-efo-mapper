@@ -10,8 +10,8 @@ Actual mapping runs locally with Python.
 Quick local setup:
 
 ```bash
-git clone https://github.com/earlEBI/protein-efo-mapper.git
-cd protein-efo-mapper
+git clone https://github.com/earlEBI/analyte-efo-mapper.git
+cd analyte-efo-mapper
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
@@ -131,4 +131,4 @@ Useful optional arguments:
 
 The published site URL is:
 
-`https://earlebi.github.io/protein-efo-mapper/`
+`https://earlebi.github.io/analyte-efo-mapper/`
