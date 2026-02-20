@@ -25,12 +25,26 @@ Run mapping:
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --workers 8 \
+  --parallel-mode process \
+  --progress
+```
+
+Optional review queue output:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
   --review-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --workers 8 \
   --parallel-mode process \
   --progress
 ```
+
+`final_output/review_queue.tsv` is for manual review of closest unresolved candidates; it is useful but can contain probable mismatches.
 
 Defaults and options:
 
@@ -62,6 +76,7 @@ Useful optional arguments:
 - `--name-mode strict|fuzzy` handling for name-like inputs.
 - `--auto-enrich-uniprot` fetch missing UniProt aliases.
 - `--unmapped-output` write unresolved rows to a separate TSV.
+- `--review-output` write optional manual-review suggestions (`review_queue.tsv`).
 
 The published site URL is:
 

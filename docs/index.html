@@ -343,7 +343,6 @@ Beta-glucosidase 2	protein_name</pre>
         <pre id="map-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --workers 8 \
   --parallel-mode process \
@@ -354,7 +353,6 @@ Beta-glucosidase 2	protein_name</pre>
         <pre id="map-cmd-serum">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --measurement-context blood \
   --additional-contexts serum \
@@ -380,7 +378,6 @@ Beta-glucosidase 2	protein_name</pre>
       <pre id="map-cmd-plasma">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --measurement-context plasma \
   --workers 8 \
@@ -392,7 +389,6 @@ Beta-glucosidase 2	protein_name</pre>
       <pre id="map-cmd-aorta">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/review_queue.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --measurement-context auto \
   --additional-context-keywords aorta \
@@ -402,8 +398,19 @@ Beta-glucosidase 2	protein_name</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-aorta">Copy Aorta Keyword Command</button>
       </div>
+      <pre id="map-cmd-review">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/review_queue.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review">Copy Optional Review Queue Command</button>
+      </div>
       <ul>
-        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--auto-enrich-uniprot</code>, <code>--unmapped-output</code>.</li>
+        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--auto-enrich-uniprot</code>, <code>--unmapped-output</code>, <code>--review-output</code>.</li>
       </ul>
     </section>
 
@@ -411,7 +418,7 @@ Beta-glucosidase 2	protein_name</pre>
       <h2>Outputs</h2>
       <ul>
         <li><code>final_output/analytes_efo.tsv</code>: main mappings with confidence and validation.</li>
-        <li><code>final_output/review_queue.tsv</code>: unresolved or withheld mappings with top suggestions.</li>
+        <li><code>final_output/review_queue.tsv</code> (optional): manual-review file with closest unresolved candidates; useful suggestions, but many are likely incorrect.</li>
         <li><code>final_output/analytes_unmapped.tsv</code>: optional pure unresolved list.</li>
         <li>Ontology IDs are written with underscores (for example <code>EFO_0802947</code>).</li>
       </ul>
