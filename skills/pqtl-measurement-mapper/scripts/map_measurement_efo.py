@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Bulk/offline mapper for protein/metabolite queries -> measurement EFO IDs.
+"""Bulk/offline mapper for analyte/trait queries -> ontology IDs.
 
 Architecture:
 - index-build: build a local JSON index from cache/reference files
-- map: map large query files using local index only (fast, scalable)
+- map: map protein/metabolite query files using local index only (fast, scalable)
+- trait-map: map disease/phenotype traits via curated trait cache + efo.obo fallback
 """
 
 from __future__ import annotations
@@ -255,6 +256,7 @@ DEFAULT_CHEBI_NAMES_URL = "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/
 DEFAULT_KEGG_CONV_URL = "https://rest.kegg.jp/conv/chebi/compound"
 DEFAULT_EFO_OBO_URL = "https://github.com/EBISPOT/efo/releases/latest/download/efo.obo"
 DEFAULT_EFO_OBO_LOCAL = Path(__file__).resolve().parents[1] / "references" / "efo.obo"
+DEFAULT_TRAIT_CACHE = Path(__file__).resolve().parents[3] / "final_output" / "code-EFO-mappings_final_mapping_cache.tsv"
 DEFAULT_MEASUREMENT_ROOT = "EFO:0001444"
 DEFAULT_MATRIX_PRIORITY = ["plasma", "blood", "serum"]
 DEFAULT_MEASUREMENT_CONTEXT = "blood"
@@ -293,6 +295,143 @@ MEASUREMENT_CONTEXT_ALIASES = {
     "tissue": "tissue",
 }
 
+TRAIT_QUERY_COLUMNS = [
+    "query",
+    "trait",
+    "reported_trait",
+    "disease_trait",
+    "phenotype",
+    "term",
+]
+TRAIT_ICD10_COLUMNS = [
+    "icd10",
+    "icd_10",
+    "icd",
+    "diagnosis_code",
+]
+TRAIT_PHECODE_COLUMNS = [
+    "phecode",
+    "phe_code",
+    "phe",
+]
+TRAIT_INPUT_TYPE_COLUMNS = [
+    "input_type",
+    "query_type",
+    "id_type",
+    "type",
+]
+TRAIT_INPUT_TYPE_ALIASES = {
+    "": "auto",
+    "auto": "auto",
+    "any": "auto",
+    "text": "trait_text",
+    "trait": "trait_text",
+    "trait_text": "trait_text",
+    "reported_trait": "trait_text",
+    "disease_trait": "trait_text",
+    "phenotype": "trait_text",
+    "icd10": "icd10",
+    "icd": "icd10",
+    "phecode": "phecode",
+    "phe": "phecode",
+}
+TRAIT_STOP_TOKENS = {
+    "disease",
+    "disorder",
+    "syndrome",
+    "trait",
+    "traits",
+    "phenotype",
+    "phenotypes",
+    "and",
+    "or",
+    "of",
+    "in",
+    "with",
+    "without",
+    "unspecified",
+    "other",
+    "type",
+    "status",
+    "measurement",
+    "level",
+    "levels",
+    "ukb",
+    "data",
+    "field",
+}
+TRAIT_NEGATION_CUES = {
+    "non",
+    "without",
+    "never",
+    "no",
+    "minus",
+}
+TRAIT_CANONICAL_SIMILARITY_SUBS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bnon\s+high\s+density\s+lipoprotein\b"), "non hdl"),
+    (re.compile(r"\bhigh\s+density\s+lipoprotein\b"), "hdl"),
+    (re.compile(r"\bnon\s+low\s+density\s+lipoprotein\b"), "non ldl"),
+    (re.compile(r"\blow\s+density\s+lipoprotein\b"), "ldl"),
+    (re.compile(r"\bnon\s+very\s+low\s+density\s+lipoprotein\b"), "non vldl"),
+    (re.compile(r"\bvery\s+low\s+density\s+lipoprotein\b"), "vldl"),
+    (re.compile(r"\bhdl\s*c\b"), "hdl"),
+    (re.compile(r"\bldl\s*c\b"), "ldl"),
+    (re.compile(r"\bvldl\s*c\b"), "vldl"),
+)
+DISEASE_HINT_TOKENS = {
+    "disease",
+    "disorder",
+    "syndrome",
+    "phenotype",
+    "abnormality",
+    "injury",
+    "infection",
+    "cancer",
+    "carcinoma",
+    "tumor",
+    "tumour",
+    "neoplasm",
+    "arthritis",
+    "myelitis",
+    "pneumonia",
+    "urticaria",
+    "diabetes",
+    "asthma",
+    "eczema",
+    "depression",
+    "anxiety",
+    "phobia",
+    "paralysis",
+    "paresis",
+    "palsy",
+}
+DISEASE_SUFFIX_HINTS = (
+    "itis",
+    "osis",
+    "oma",
+    "emia",
+    "uria",
+    "pathy",
+    "algia",
+    "phobia",
+    "plegia",
+    "paresis",
+    "plasia",
+)
+TRAIT_PREFERRED_PREFIX_ORDER = {
+    "EFO": 0,
+    "MONDO": 1,
+    "HP": 2,
+    "OBA": 3,
+    "NCIT": 4,
+    "PATO": 5,
+    "GO": 6,
+    "MP": 7,
+    "UBERON": 8,
+    "HANCESTRO": 9,
+    "GSSO": 10,
+}
+
 
 @dataclass
 class Candidate:
@@ -310,6 +449,25 @@ class AccessionProfile:
     expected_symbol_nums: frozenset[str]
     subject_terms: frozenset[str]
     symbol_terms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TraitCacheRecord:
+    rownum: int
+    reported_trait: str
+    lookup_text: str
+    icd10: str
+    phecode: str
+    mapped_ids: tuple[str, ...]
+    mapped_labels: tuple[str, ...]
+    publication: str
+
+
+@dataclass(frozen=True)
+class TraitOntologyTerm:
+    term_id: str
+    label: str
+    synonyms: tuple[str, ...]
 
 
 class ProgressReporter:
@@ -570,6 +728,845 @@ def load_query_inputs(path: Path) -> list[tuple[str, str]]:
 
 def load_queries(path: Path) -> list[str]:
     return [query for query, _input_type in load_query_inputs(path)]
+
+
+@lru_cache(maxsize=50_000)
+def normalize_trait_input_type(value: str) -> str:
+    key = norm_key(value).replace("-", "_").replace(" ", "_")
+    return TRAIT_INPUT_TYPE_ALIASES.get(key, "auto")
+
+
+@lru_cache(maxsize=200_000)
+def normalize_icd10_code(value: str) -> str:
+    token = normalize(value).upper()
+    if not token:
+        return ""
+    token = token.replace("ICD-10", "ICD10").replace("ICD 10", "ICD10")
+    match = re.search(r"\b([A-TV-Z][0-9]{2}(?:\.[0-9A-Z]{1,4})?)\b", token)
+    if match:
+        return match.group(1)
+    if ":" in token:
+        token = token.split(":", 1)[0]
+    token = token.replace("ICD10", "").strip().replace(" ", "")
+    return token
+
+
+@lru_cache(maxsize=200_000)
+def normalize_phecode(value: str) -> str:
+    token = normalize(value)
+    if not token:
+        return ""
+    match = re.search(r"\b([0-9]{1,4}(?:\.[0-9A-Z]{1,4})?)\b", token.upper())
+    if match:
+        return match.group(1)
+    return token.replace(" ", "")
+
+
+@lru_cache(maxsize=200_000)
+def canonicalize_trait_ontology_id(value: str) -> str:
+    raw = normalize(value)
+    if not raw:
+        return ""
+    token = raw.split()[0]
+    if token.lower().startswith("http"):
+        token = token.rsplit("/", 1)[-1]
+    if ":" in token:
+        parts = token.split(":")
+        last = parts[-1]
+        if re.match(r"^[A-Za-z]+_[0-9A-Za-z]+$", last):
+            token = last
+        elif (
+            len(parts) >= 2
+            and re.match(r"^[A-Za-z]+$", parts[-2])
+            and re.match(r"^[0-9A-Za-z_]+$", last)
+        ):
+            token = f"{parts[-2].upper()}_{last}"
+        else:
+            token = last
+    token = token.replace(":", "_")
+    if "_" in token:
+        prefix, local = token.split("_", 1)
+        return f"{prefix.upper()}_{local}"
+    return token.upper()
+
+
+def trait_ontology_prefix(ontology_id: str) -> str:
+    oid = canonicalize_trait_ontology_id(ontology_id)
+    if "_" not in oid:
+        return oid
+    return oid.split("_", 1)[0]
+
+
+def split_multi_ids(value: str) -> list[str]:
+    return [normalize(part) for part in re.split(r"[|,;]+", str(value)) if normalize(part)]
+
+
+def split_multi_labels(value: str, expected_n: int) -> list[str]:
+    raw = normalize(value)
+    if not raw:
+        return []
+    if "|" in raw:
+        return [normalize(part) for part in raw.split("|") if normalize(part)]
+    if expected_n > 1 and "," in raw:
+        return [normalize(part) for part in raw.split(",") if normalize(part)]
+    return [raw]
+
+
+def informative_trait_tokens(text: str) -> set[str]:
+    toks = {tok for tok in tokenize(text) if len(tok) >= 3}
+    filtered = {tok for tok in toks if tok not in TRAIT_STOP_TOKENS}
+    return filtered or toks
+
+
+def normalize_trait_text_for_similarity(text: str) -> str:
+    key = norm_key(text)
+    if not key:
+        return ""
+    for pattern, replacement in TRAIT_CANONICAL_SIMILARITY_SUBS:
+        key = pattern.sub(replacement, key)
+    return re.sub(r"\s+", " ", key).strip()
+
+
+def normalize_negation_target(token: str) -> str:
+    tok = norm_key(token)
+    if len(tok) <= 3:
+        return tok
+    if tok.endswith("ies"):
+        return tok[:-3] + "y"
+    if tok.endswith("s") and not tok.endswith("ss"):
+        return tok[:-1]
+    return tok
+
+
+def extract_negated_trait_targets(text: str) -> set[str]:
+    key = normalize_trait_text_for_similarity(text)
+    if not key:
+        return set()
+    toks = [tok for tok in re.split(r"[^a-z0-9]+", key) if tok]
+    targets: set[str] = set()
+    for idx, tok in enumerate(toks[:-1]):
+        if tok not in TRAIT_NEGATION_CUES:
+            continue
+        target = normalize_negation_target(toks[idx + 1])
+        if not target or target in TRAIT_STOP_TOKENS:
+            continue
+        targets.add(target)
+    return targets
+
+
+def trait_negation_mismatch(query_text: str, candidate_text: str) -> bool:
+    qnorm = normalize_trait_text_for_similarity(query_text)
+    cnorm = normalize_trait_text_for_similarity(candidate_text)
+    if not qnorm or not cnorm:
+        return False
+    q_neg = extract_negated_trait_targets(qnorm)
+    c_neg = extract_negated_trait_targets(cnorm)
+    if not q_neg and not c_neg:
+        return False
+    if q_neg == c_neg:
+        return False
+    q_toks = {normalize_negation_target(tok) for tok in tokenize(qnorm)}
+    c_toks = {normalize_negation_target(tok) for tok in tokenize(cnorm)}
+    return bool((q_neg & c_toks) or (c_neg & q_toks))
+
+
+def has_disease_hint(text: str) -> bool:
+    toks = tokenize(text)
+    if any(tok in DISEASE_HINT_TOKENS for tok in toks):
+        return True
+    return any(tok.endswith(DISEASE_SUFFIX_HINTS) for tok in toks)
+
+
+def load_trait_query_inputs(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        raise FileNotFoundError(f"Input file not found: {path}")
+
+    suffix = path.suffix.lower()
+    if suffix in {".txt", ".list"}:
+        rows: list[dict[str, str]] = []
+        for idx, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            query = normalize(line)
+            if not query:
+                continue
+            rows.append(
+                {
+                    "row_id": str(idx),
+                    "query": query,
+                    "input_type": "trait_text",
+                    "icd10": "",
+                    "phecode": "",
+                }
+            )
+        return rows
+
+    delimiter = "\t" if suffix in {".tsv", ".tab"} else ","
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        parsed_rows = list(csv.reader(handle, delimiter=delimiter))
+    if not parsed_rows:
+        return []
+
+    if parsed_rows and len(parsed_rows[0]) == 1 and all(len(r) <= 1 for r in parsed_rows):
+        first = normalize(parsed_rows[0][0] if parsed_rows[0] else "")
+        start_idx = 1 if first.lower() in TRAIT_QUERY_COLUMNS else 0
+        rows: list[dict[str, str]] = []
+        for idx, row in enumerate(parsed_rows[start_idx:], start=1):
+            query = normalize(row[0] if row else "")
+            if not query:
+                continue
+            rows.append(
+                {
+                    "row_id": str(idx),
+                    "query": query,
+                    "input_type": "trait_text",
+                    "icd10": "",
+                    "phecode": "",
+                }
+            )
+        return rows
+
+    fieldnames = parsed_rows[0]
+    field_lookup = {normalize(field).lower(): field for field in fieldnames}
+
+    query_field = next((field_lookup[name] for name in TRAIT_QUERY_COLUMNS if name in field_lookup), fieldnames[0])
+    icd_field = next((field_lookup[name] for name in TRAIT_ICD10_COLUMNS if name in field_lookup), None)
+    phe_field = next((field_lookup[name] for name in TRAIT_PHECODE_COLUMNS if name in field_lookup), None)
+    type_field = next((field_lookup[name] for name in TRAIT_INPUT_TYPE_COLUMNS if name in field_lookup), None)
+
+    rows: list[dict[str, str]] = []
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter=delimiter)
+        for idx, row in enumerate(reader, start=1):
+            raw_query = normalize(row.get(query_field, ""))
+            raw_icd = normalize(row.get(icd_field, "")) if icd_field else ""
+            raw_phe = normalize(row.get(phe_field, "")) if phe_field else ""
+            input_type = normalize_trait_input_type(row.get(type_field, "")) if type_field else "auto"
+
+            if input_type == "icd10" and not raw_icd:
+                raw_icd = raw_query
+            if input_type == "phecode" and not raw_phe:
+                raw_phe = raw_query
+            if input_type == "trait_text" and not raw_query:
+                raw_query = raw_icd or raw_phe
+
+            if not raw_query and not raw_icd and not raw_phe:
+                continue
+
+            if input_type == "auto":
+                if normalize_icd10_code(raw_icd):
+                    input_type = "icd10"
+                elif normalize_phecode(raw_phe):
+                    input_type = "phecode"
+                else:
+                    input_type = "trait_text"
+
+            rows.append(
+                {
+                    "row_id": str(idx),
+                    "query": raw_query,
+                    "input_type": input_type,
+                    "icd10": raw_icd,
+                    "phecode": raw_phe,
+                }
+            )
+    return rows
+
+
+def load_trait_cache_index(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Trait cache not found: {path}")
+
+    records: list[TraitCacheRecord] = []
+    icd10_index: dict[str, list[int]] = {}
+    phecode_index: dict[str, list[int]] = {}
+    text_exact_index: dict[str, list[int]] = {}
+    token_index: dict[str, set[int]] = {}
+    token_freq: Counter[str] = Counter()
+
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for rownum, row in enumerate(reader, start=1):
+            reported_trait = normalize(row.get("Curated reported trait") or row.get("DISEASE/TRAIT") or "")
+            lookup_text = normalize(row.get("Lookup text") or row.get("DISEASE/TRAIT") or reported_trait)
+            icd10 = normalize_icd10_code(row.get("ICD10") or "")
+            phecode = normalize_phecode(row.get("PheCode") or "")
+            publication = normalize(row.get("Publication") or "")
+
+            raw_ids = split_multi_ids(row.get("main ontology URI(s)") or row.get("MAPPED_TRAIT_URI") or "")
+            if not raw_ids:
+                continue
+            canon_ids: list[str] = []
+            for item in raw_ids:
+                oid = canonicalize_trait_ontology_id(item)
+                if not oid:
+                    continue
+                if oid not in canon_ids:
+                    canon_ids.append(oid)
+            if not canon_ids:
+                continue
+
+            raw_labels = split_multi_labels(
+                row.get("main ontology label(s)") or row.get("MAPPED_TRAIT") or "",
+                expected_n=len(canon_ids),
+            )
+            labels: list[str] = []
+            for idx, oid in enumerate(canon_ids):
+                mapped_label = raw_labels[idx] if idx < len(raw_labels) else ""
+                labels.append(normalize(mapped_label))
+
+            record = TraitCacheRecord(
+                rownum=rownum,
+                reported_trait=reported_trait,
+                lookup_text=lookup_text,
+                icd10=icd10,
+                phecode=phecode,
+                mapped_ids=tuple(canon_ids),
+                mapped_labels=tuple(labels),
+                publication=publication,
+            )
+            rec_idx = len(records)
+            records.append(record)
+
+            if icd10:
+                icd10_index.setdefault(icd10, []).append(rec_idx)
+            if phecode:
+                phecode_index.setdefault(phecode, []).append(rec_idx)
+
+            for text_value in {reported_trait, lookup_text}:
+                text_norm = norm_key(text_value)
+                if not text_norm:
+                    continue
+                text_exact_index.setdefault(text_norm, []).append(rec_idx)
+                for tok in informative_trait_tokens(text_norm):
+                    token_index.setdefault(tok, set()).add(rec_idx)
+                    token_freq[tok] += 1
+
+    return {
+        "records": records,
+        "icd10_index": icd10_index,
+        "phecode_index": phecode_index,
+        "text_exact_index": text_exact_index,
+        "token_index": token_index,
+        "token_freq": token_freq,
+    }
+
+
+def load_trait_ontology_index(obo_path: Path) -> dict[str, Any]:
+    if not obo_path.exists():
+        raise FileNotFoundError(f"EFO OBO not found: {obo_path}")
+
+    terms: dict[str, TraitOntologyTerm] = {}
+    exact_index: dict[str, set[str]] = {}
+    token_index: dict[str, set[str]] = {}
+    token_freq: Counter[str] = Counter()
+
+    current_id = ""
+    current_label = ""
+    current_synonyms: list[str] = []
+    current_obsolete = False
+    in_term = False
+
+    def flush_term() -> None:
+        nonlocal current_id, current_label, current_synonyms, current_obsolete
+        if not current_id or current_obsolete or not current_label:
+            current_id = ""
+            current_label = ""
+            current_synonyms = []
+            current_obsolete = False
+            return
+
+        prefix = trait_ontology_prefix(current_id)
+        if prefix not in TRAIT_PREFERRED_PREFIX_ORDER:
+            current_id = ""
+            current_label = ""
+            current_synonyms = []
+            current_obsolete = False
+            return
+
+        term = TraitOntologyTerm(
+            term_id=current_id,
+            label=normalize(current_label),
+            synonyms=tuple(dict.fromkeys(normalize(syn) for syn in current_synonyms if normalize(syn))),
+        )
+        terms[current_id] = term
+
+        phrases = {term.label, *term.synonyms}
+        for phrase in phrases:
+            key = norm_key(phrase)
+            if not key:
+                continue
+            exact_index.setdefault(key, set()).add(current_id)
+            for tok in informative_trait_tokens(key):
+                token_index.setdefault(tok, set()).add(current_id)
+                token_freq[tok] += 1
+
+        current_id = ""
+        current_label = ""
+        current_synonyms = []
+        current_obsolete = False
+
+    with obo_path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for raw_line in handle:
+            line = raw_line.rstrip("\n")
+            if line == "[Term]":
+                flush_term()
+                in_term = True
+                continue
+            if line.startswith("[") and line != "[Term]":
+                flush_term()
+                in_term = False
+                continue
+            if not in_term:
+                continue
+            if line.startswith("id: "):
+                current_id = canonicalize_trait_ontology_id(line[4:])
+            elif line.startswith("name: "):
+                current_label = line[6:].strip()
+            elif line.startswith("synonym: "):
+                match = re.match(r'^synonym:\s+"(.+?)"\s+(?:EXACT|BROAD|NARROW|RELATED)\b', line)
+                if match:
+                    current_synonyms.append(match.group(1).strip())
+            elif line.startswith("is_obsolete: "):
+                current_obsolete = line.split(":", 1)[1].strip().lower() == "true"
+
+    flush_term()
+    return {
+        "terms": terms,
+        "exact_index": exact_index,
+        "token_index": token_index,
+        "token_freq": token_freq,
+    }
+
+
+def pick_seed_tokens(tokens: set[str], token_freq: Counter[str], max_tokens: int = 6) -> list[str]:
+    if not tokens:
+        return []
+    items = list(tokens)
+    items.sort(key=lambda tok: (token_freq.get(tok, 10**9), len(tok), tok))
+    return items[:max_tokens]
+
+
+def trait_similarity_score(query: str, query_toks: set[str], candidate_text: str) -> float:
+    qnorm = normalize_trait_text_for_similarity(query)
+    cnorm = normalize_trait_text_for_similarity(candidate_text)
+    if not qnorm or not cnorm:
+        return 0.0
+    if trait_negation_mismatch(qnorm, cnorm):
+        return 0.0
+    c_toks = informative_trait_tokens(cnorm)
+    overlap = len(query_toks & c_toks) / max(len(query_toks), 1)
+    seq = difflib.SequenceMatcher(None, qnorm, cnorm).ratio()
+    substring_bonus = 0.1 if len(cnorm) >= 6 and (cnorm in qnorm or qnorm in cnorm) else 0.0
+    return min(1.0, 0.6 * overlap + 0.4 * seq + substring_bonus)
+
+
+def collapse_trait_cache_candidates(
+    records: list[TraitCacheRecord],
+    *,
+    method: str,
+    score: float,
+    matched_on: str,
+    validated_if_unique: bool,
+) -> list[Candidate]:
+    grouped: dict[tuple[str, str], list[TraitCacheRecord]] = {}
+    for record in records:
+        mapped_ids = "|".join(record.mapped_ids)
+        mapped_labels = "|".join(record.mapped_labels)
+        grouped.setdefault((mapped_ids, mapped_labels), []).append(record)
+
+    unique_count = len(grouped)
+    candidates: list[Candidate] = []
+    for (mapped_ids, mapped_labels), rows in grouped.items():
+        source_rows = ",".join(str(row.rownum) for row in rows[:10])
+        publication_set = sorted({row.publication for row in rows if row.publication})
+        publication_hint = "|".join(publication_set[:3])
+        evidence = f"{matched_on} cache rows={source_rows}"
+        if publication_hint:
+            evidence += f"; publications={publication_hint}"
+        if unique_count > 1:
+            evidence += "; multiple cache mappings for key"
+        candidates.append(
+            Candidate(
+                efo_id=mapped_ids,
+                label=mapped_labels,
+                score=max(0.0, min(1.0, score)),
+                matched_via=method,
+                evidence=evidence,
+                is_validated=validated_if_unique and unique_count == 1,
+            )
+        )
+    return candidates
+
+
+def confidence_bucket(score: float) -> str:
+    if score >= 0.93:
+        return "high"
+    if score >= 0.82:
+        return "medium"
+    return "low"
+
+
+def make_trait_provenance(
+    *,
+    method: str,
+    input_type: str,
+    input_value: str,
+    matched_on: str,
+    mapped_ids: str,
+    mapped_labels: str,
+    source_file: str,
+    score: float,
+    validated: bool,
+) -> str:
+    confidence = confidence_bucket(score)
+    needs_review = "no" if validated else "yes"
+    normalized_input = norm_key(input_value)
+    return (
+        "mapping_provenance=v1;"
+        f"method={method};"
+        f"input_type={input_type};"
+        f"input_value={input_value};"
+        f"normalized_input={normalized_input};"
+        f"matched_on={matched_on};"
+        f"mapped_ids={mapped_ids};"
+        f"mapped_labels={mapped_labels};"
+        f"source_file={source_file};"
+        f"confidence={confidence};"
+        f"needs_review={needs_review}"
+    )
+
+
+def map_trait_queries(
+    query_inputs: list[dict[str, str]],
+    *,
+    trait_cache_index: dict[str, Any],
+    ontology_index: dict[str, Any],
+    trait_cache_path: Path,
+    efo_obo_path: Path,
+    top_k: int,
+    min_score: float,
+    force_map_best: bool,
+    show_progress: bool,
+) -> list[dict[str, str]]:
+    records: list[TraitCacheRecord] = trait_cache_index["records"]
+    icd10_index: dict[str, list[int]] = trait_cache_index["icd10_index"]
+    phecode_index: dict[str, list[int]] = trait_cache_index["phecode_index"]
+    text_exact_index: dict[str, list[int]] = trait_cache_index["text_exact_index"]
+    cache_token_index: dict[str, set[int]] = trait_cache_index["token_index"]
+    cache_token_freq: Counter[str] = trait_cache_index["token_freq"]
+
+    ontology_terms: dict[str, TraitOntologyTerm] = ontology_index["terms"]
+    ontology_exact_index: dict[str, set[str]] = ontology_index["exact_index"]
+    ontology_token_index: dict[str, set[str]] = ontology_index["token_index"]
+    ontology_token_freq: Counter[str] = ontology_index["token_freq"]
+
+    rows: list[dict[str, str]] = []
+    progress = ProgressReporter(total=len(query_inputs), enabled=show_progress)
+
+    via_rank = {
+        "cache_exact_icd10": 0,
+        "cache_exact_phecode": 1,
+        "cache_exact_text": 2,
+        "cache_fuzzy_text": 3,
+        "efo_obo_exact": 4,
+        "efo_obo_fuzzy": 5,
+    }
+
+    for item in query_inputs:
+        query = normalize(item.get("query", ""))
+        input_type = normalize_trait_input_type(item.get("input_type", "auto"))
+        icd10 = normalize_icd10_code(item.get("icd10", ""))
+        phecode = normalize_phecode(item.get("phecode", ""))
+
+        if input_type == "icd10" and not icd10:
+            icd10 = normalize_icd10_code(query)
+        if input_type == "phecode" and not phecode:
+            phecode = normalize_phecode(query)
+
+        if input_type == "auto":
+            if icd10:
+                input_type = "icd10"
+            elif phecode:
+                input_type = "phecode"
+            else:
+                input_type = "trait_text"
+        if not query:
+            query = icd10 or phecode
+
+        query_norm = norm_key(query)
+        query_match_norm = normalize_trait_text_for_similarity(query)
+        query_tokens = informative_trait_tokens(query_match_norm or query_norm)
+        candidates: list[Candidate] = []
+        best_any: list[Candidate] = []
+
+        if icd10 and icd10 in icd10_index:
+            matched_records = [records[idx] for idx in icd10_index[icd10]]
+            candidates.extend(
+                collapse_trait_cache_candidates(
+                    matched_records,
+                    method="cache_exact_icd10",
+                    score=1.0,
+                    matched_on="ICD10",
+                    validated_if_unique=True,
+                )
+            )
+
+        if phecode and phecode in phecode_index:
+            matched_records = [records[idx] for idx in phecode_index[phecode]]
+            candidates.extend(
+                collapse_trait_cache_candidates(
+                    matched_records,
+                    method="cache_exact_phecode",
+                    score=0.99,
+                    matched_on="PheCode",
+                    validated_if_unique=True,
+                )
+            )
+
+        if query_norm and query_norm in text_exact_index:
+            matched_records = [records[idx] for idx in text_exact_index[query_norm]]
+            candidates.extend(
+                collapse_trait_cache_candidates(
+                    matched_records,
+                    method="cache_exact_text",
+                    score=0.97,
+                    matched_on="Reported trait text",
+                    validated_if_unique=True,
+                )
+            )
+
+        if not candidates and query_tokens:
+            seed_tokens = pick_seed_tokens(query_tokens, cache_token_freq, max_tokens=6)
+            candidate_idxs: set[int] = set()
+            for tok in seed_tokens:
+                candidate_idxs |= cache_token_index.get(tok, set())
+            scored_cache: list[tuple[float, TraitCacheRecord]] = []
+            for rec_idx in candidate_idxs:
+                rec = records[rec_idx]
+                score_a = trait_similarity_score(query_match_norm, query_tokens, rec.reported_trait)
+                score_b = trait_similarity_score(query_match_norm, query_tokens, rec.lookup_text)
+                score = max(score_a, score_b)
+                if score <= 0.0:
+                    continue
+                scored_cache.append((score, rec))
+            scored_cache.sort(key=lambda item: item[0], reverse=True)
+            best_any.extend(
+                collapse_trait_cache_candidates(
+                    [rec for _score, rec in scored_cache[: max(3, top_k * 4)]],
+                    method="cache_fuzzy_text",
+                    score=max(scored_cache[0][0], min_score) if scored_cache else 0.0,
+                    matched_on="cache lexical candidate set",
+                    validated_if_unique=False,
+                )
+            )
+            for score, rec in scored_cache[: max(3, top_k * 4)]:
+                if score < min_score:
+                    continue
+                mapped_ids = "|".join(rec.mapped_ids)
+                mapped_labels = "|".join(rec.mapped_labels)
+                candidates.append(
+                    Candidate(
+                        efo_id=mapped_ids,
+                        label=mapped_labels,
+                        score=score,
+                        matched_via="cache_fuzzy_text",
+                        evidence=f"cache row={rec.rownum}; matched reported trait '{rec.reported_trait}'",
+                        is_validated=score >= 0.93,
+                    )
+                )
+
+        if not candidates and query_norm:
+            exact_term_ids = ontology_exact_index.get(query_norm, set())
+            if exact_term_ids:
+                ordered = sorted(
+                    exact_term_ids,
+                    key=lambda tid: (
+                        TRAIT_PREFERRED_PREFIX_ORDER.get(trait_ontology_prefix(tid), 999),
+                        tid,
+                    ),
+                )
+                for term_id in ordered[: max(top_k, 5)]:
+                    term = ontology_terms[term_id]
+                    candidates.append(
+                        Candidate(
+                            efo_id=term.term_id,
+                            label=term.label,
+                            score=0.93 if len(ordered) == 1 else 0.88,
+                            matched_via="efo_obo_exact",
+                            evidence="exact label/synonym match in efo.obo",
+                            is_validated=len(ordered) == 1,
+                        )
+                    )
+
+        if not candidates and query_tokens:
+            seed_tokens = pick_seed_tokens(query_tokens, ontology_token_freq, max_tokens=7)
+            candidate_term_ids: set[str] = set()
+            for tok in seed_tokens:
+                candidate_term_ids |= ontology_token_index.get(tok, set())
+
+            scored_terms: list[tuple[float, str]] = []
+            for term_id in candidate_term_ids:
+                term = ontology_terms[term_id]
+                best = trait_similarity_score(query_match_norm, query_tokens, term.label)
+                for syn in term.synonyms[:10]:
+                    best = max(best, trait_similarity_score(query_match_norm, query_tokens, syn))
+                if best <= 0.0:
+                    continue
+                scored_terms.append((best, term_id))
+
+            scored_terms.sort(
+                key=lambda item: (
+                    item[0],
+                    -TRAIT_PREFERRED_PREFIX_ORDER.get(trait_ontology_prefix(item[1]), 999),
+                ),
+                reverse=True,
+            )
+
+            if scored_terms:
+                top_score = scored_terms[0][0]
+                second_score = scored_terms[1][0] if len(scored_terms) > 1 else 0.0
+                for score, term_id in scored_terms[: max(5, top_k * 6)]:
+                    if score < min_score:
+                        continue
+                    term = ontology_terms[term_id]
+                    candidates.append(
+                        Candidate(
+                            efo_id=term.term_id,
+                            label=term.label,
+                            score=score,
+                            matched_via="efo_obo_fuzzy",
+                            evidence="token lexical fallback in efo.obo",
+                            is_validated=(score >= 0.93 and (top_score - second_score) >= 0.08),
+                        )
+                    )
+                best_any.append(
+                    Candidate(
+                        efo_id=ontology_terms[scored_terms[0][1]].term_id,
+                        label=ontology_terms[scored_terms[0][1]].label,
+                        score=top_score,
+                        matched_via="efo_obo_fuzzy",
+                        evidence="best lexical candidate from efo.obo",
+                        is_validated=False,
+                    )
+                )
+
+        deduped: dict[tuple[str, str, str], Candidate] = {}
+        for candidate in candidates:
+            key = (candidate.efo_id, candidate.label, candidate.matched_via)
+            prior = deduped.get(key)
+            if prior is None or candidate.score > prior.score:
+                deduped[key] = candidate
+        candidates = list(deduped.values())
+        candidates.sort(
+            key=lambda candidate: (
+                candidate.score,
+                -via_rank.get(candidate.matched_via, 999),
+                candidate.efo_id,
+            ),
+            reverse=True,
+        )
+
+        emitted = candidates[: max(1, top_k)]
+        if not emitted and force_map_best and best_any:
+            emitted = [best_any[0]]
+
+        if not emitted:
+            rows.append(
+                {
+                    "input_query": query,
+                    "input_type": input_type,
+                    "input_icd10": icd10,
+                    "input_phecode": phecode,
+                    "mapped_trait_id": "",
+                    "mapped_trait_label": "",
+                    "confidence": "0.000",
+                    "matched_via": "none",
+                    "validation": "not_mapped",
+                    "evidence": "no cache/efo candidate above threshold",
+                    "provenance": "",
+                }
+            )
+            progress.update()
+            continue
+
+        for candidate in emitted:
+            validated = candidate.is_validated and candidate.score >= min_score
+            validation = "validated" if validated else "review_required"
+            source_file = (
+                trait_cache_path.name if candidate.matched_via.startswith("cache_") else efo_obo_path.name
+            )
+            mapped_ids = "|".join(
+                format_ontology_id_for_output(part)
+                for part in split_multi_ids(candidate.efo_id)
+            )
+            if not mapped_ids:
+                mapped_ids = format_ontology_id_for_output(candidate.efo_id)
+            mapped_labels = normalize(candidate.label)
+            matched_on = (
+                "ICD10"
+                if candidate.matched_via == "cache_exact_icd10"
+                else "PheCode"
+                if candidate.matched_via == "cache_exact_phecode"
+                else "Reported trait"
+                if candidate.matched_via.startswith("cache_")
+                else "EFO/OBO label or synonym"
+            )
+            primary_input_value = icd10 if input_type == "icd10" else phecode if input_type == "phecode" else query
+            provenance = make_trait_provenance(
+                method=candidate.matched_via,
+                input_type=input_type,
+                input_value=primary_input_value,
+                matched_on=matched_on,
+                mapped_ids=mapped_ids,
+                mapped_labels=mapped_labels,
+                source_file=source_file,
+                score=candidate.score,
+                validated=validated,
+            )
+            rows.append(
+                {
+                    "input_query": query,
+                    "input_type": input_type,
+                    "input_icd10": icd10,
+                    "input_phecode": phecode,
+                    "mapped_trait_id": mapped_ids,
+                    "mapped_trait_label": mapped_labels,
+                    "confidence": f"{max(0.0, min(1.0, candidate.score)):.3f}",
+                    "matched_via": candidate.matched_via,
+                    "validation": validation,
+                    "evidence": candidate.evidence,
+                    "provenance": provenance,
+                }
+            )
+        progress.update()
+
+    return rows
+
+
+def write_trait_tsv(rows: list[dict[str, str]], path: Path) -> None:
+    fields = [
+        "input_query",
+        "input_type",
+        "input_icd10",
+        "input_phecode",
+        "mapped_trait_id",
+        "mapped_trait_label",
+        "confidence",
+        "matched_via",
+        "validation",
+        "evidence",
+        "provenance",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t", extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_trait_review_tsv(rows: list[dict[str, str]], path: Path) -> int:
+    review_rows = [row for row in rows if row.get("validation") == "review_required"]
+    write_trait_tsv(review_rows, path)
+    return len(review_rows)
 
 
 def load_term_cache(path: Path) -> list[dict[str, Any]]:
@@ -4668,6 +5665,50 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_map.add_argument("--analyte-cache", default=str(DEFAULT_ANALYTE_CACHE), help="Analyte cache path for write-back")
     p_map.add_argument("--cache-min-confidence", type=float, default=0.80, help="Min confidence for write-back")
 
+    p_trait = sub.add_parser(
+        "trait-map",
+        help="Map disease/phenotype traits using curated cache first, then efo.obo fallback",
+    )
+    p_trait.add_argument(
+        "--input",
+        required=True,
+        help=(
+            "Input txt/csv/tsv for disease/phenotype mapping. Supported columns: "
+            "query/trait/reported_trait, optional icd10 and/or phecode, optional input_type."
+        ),
+    )
+    p_trait.add_argument("--output", required=True, help="Output TSV path")
+    p_trait.add_argument(
+        "--trait-cache",
+        default=str(DEFAULT_TRAIT_CACHE),
+        help=(
+            "Curated trait mapping cache TSV (default: "
+            "final_output/code-EFO-mappings_final_mapping_cache.tsv)"
+        ),
+    )
+    p_trait.add_argument(
+        "--efo-obo",
+        default=str(DEFAULT_EFO_OBO_LOCAL),
+        help="EFO OBO path used for fallback label/synonym mapping",
+    )
+    p_trait.add_argument("--top-k", type=int, default=1, help="Candidates to emit per input row")
+    p_trait.add_argument("--min-score", type=float, default=0.82, help="Minimum confidence score to accept candidate")
+    p_trait.add_argument(
+        "--force-map-best",
+        action="store_true",
+        help="Emit best candidate as review_required when no mapping reaches --min-score",
+    )
+    p_trait.add_argument(
+        "--review-output",
+        help="Optional TSV path for rows with validation=review_required",
+    )
+    p_trait.add_argument(
+        "--progress",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show progress logs (default: on)",
+    )
+
     return parser
 
 
@@ -4914,6 +5955,34 @@ def main() -> int:
             if args.cache_writeback:
                 added = write_back_cache(rows, Path(args.analyte_cache), args.cache_min_confidence)
                 print(f"[OK] cache write-back added {added} entries to {args.analyte_cache}")
+            print(f"[OK] wrote {len(rows)} rows to {args.output}")
+            return 0
+
+        if args.command == "trait-map":
+            query_inputs = load_trait_query_inputs(Path(args.input))
+            if not query_inputs:
+                raise ValueError("No usable trait queries found in input")
+
+            trait_cache_path = Path(args.trait_cache)
+            efo_obo_path = Path(args.efo_obo)
+            trait_cache_index = load_trait_cache_index(trait_cache_path)
+            ontology_index = load_trait_ontology_index(efo_obo_path)
+
+            rows = map_trait_queries(
+                query_inputs,
+                trait_cache_index=trait_cache_index,
+                ontology_index=ontology_index,
+                trait_cache_path=trait_cache_path,
+                efo_obo_path=efo_obo_path,
+                top_k=max(1, args.top_k),
+                min_score=max(0.0, min(1.0, args.min_score)),
+                force_map_best=bool(args.force_map_best),
+                show_progress=bool(args.progress),
+            )
+            write_trait_tsv(rows, Path(args.output))
+            if args.review_output:
+                review_count = write_trait_review_tsv(rows, Path(args.review_output))
+                print(f"[OK] wrote {review_count} review rows to {args.review_output}")
             print(f"[OK] wrote {len(rows)} rows to {args.output}")
             return 0
 

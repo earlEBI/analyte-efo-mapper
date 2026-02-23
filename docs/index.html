@@ -103,6 +103,104 @@
       }
     }
 
+    .appendix-card {
+      border: 2px dashed rgba(15, 118, 110, 0.38);
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .stage-setup {
+      border-top: 4px solid #0369a1;
+      background: linear-gradient(180deg, rgba(3, 105, 161, 0.08), rgba(255, 255, 255, 0.86));
+    }
+
+    .stage-map {
+      border-top: 4px solid #0f766e;
+      background: linear-gradient(180deg, rgba(15, 118, 110, 0.08), rgba(255, 255, 255, 0.86));
+    }
+
+    .stage-optional {
+      border-top: 4px solid #b45309;
+      background: linear-gradient(180deg, rgba(180, 83, 9, 0.08), rgba(255, 255, 255, 0.86));
+    }
+
+    .stage-review {
+      border-top: 4px solid #475569;
+      background: linear-gradient(180deg, rgba(71, 85, 105, 0.08), rgba(255, 255, 255, 0.86));
+    }
+
+    .legend {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: var(--ink-muted);
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+    }
+
+    .jump-nav {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .jump-link {
+      display: inline-block;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #0b5f59;
+      text-decoration: none;
+      border: 2px solid rgba(15, 118, 110, 0.35);
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 999px;
+      padding: 7px 12px;
+      box-shadow: 0 2px 8px rgba(15, 118, 110, 0.12);
+      transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+    }
+
+    .jump-link:hover {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      background: rgba(240, 253, 250, 1);
+      box-shadow: 0 6px 16px rgba(15, 118, 110, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .jump-link:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(15, 118, 110, 0.14);
+    }
+
+    .jump-link:focus-visible {
+      outline: 3px solid rgba(14, 116, 144, 0.42);
+      outline-offset: 2px;
+    }
+
+    .workflow-banner {
+      padding: 14px 18px;
+    }
+
+    .workflow-banner h2 {
+      margin-bottom: 6px;
+      font-size: 1rem;
+    }
+
     h1 {
       margin: 0 0 8px;
       font-size: clamp(1.8rem, 4.8vw, 2.7rem);
@@ -288,17 +386,32 @@
   <div class="orb one"></div>
   <div class="orb two"></div>
   <main>
-    <section class="card">
+    <section class="card" id="top">
       <h1>Analyte EFO Mapper</h1>
-      <p>Maps proteins and metabolites (UniProt/gene IDs/names, HMDB/ChEBI/KEGG IDs, synonyms) to measurement terms in EFO and OBA-imported EFO terms.</p>
+      <p>Maps proteins/metabolites to measurement terms and can also map disease/phenotype reported traits using a curated cache plus EFO/OBO fallback.</p>
       <div class="badge-row">
         <span class="badge">EFO + OBA</span>
         <span class="badge">Matrix-aware (plasma &gt; blood &gt; serum)</span>
         <span class="badge">Validated vs review-queue outputs</span>
+        <span class="badge">Disease/phenotype trait-map mode</span>
+      </div>
+      <div class="legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#0369a1"></span>Setup</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#0f766e"></span>Core mapping</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#b45309"></span>Optional tuning</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#475569"></span>Review / maintenance</span>
+      </div>
+      <div class="jump-nav">
+        <a class="jump-link" href="#quick-start">Quick Start</a>
+        <a class="jump-link" href="#first-time-setup">First-Time Setup</a>
+        <a class="jump-link" href="#main-workflow">Main Workflow</a>
+        <a class="jump-link" href="#optional-tuning">Optional Tuning</a>
+        <a class="jump-link" href="#review-maintenance">Review &amp; Maintenance</a>
+        <a class="jump-link" href="#trait-appendix">Disease/Phenotype Appendix</a>
       </div>
     </section>
 
-    <section class="card">
+    <section class="card stage-setup" id="quick-start">
       <h2>Quick Start</h2>
       <p>If you already have Python and this repo cloned, this is the shortest full workflow.</p>
       <ol>
@@ -320,7 +433,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card stage-setup" id="first-time-setup">
       <h2>First-Time Setup (Novice)</h2>
       <p>Do this once on a new machine. Follow the exact steps below even if you have never used Python before.</p>
       <ol>
@@ -380,8 +493,13 @@ Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
       </div>
     </section>
 
+    <section class="card workflow-banner stage-map" id="main-workflow">
+      <h2>Main Workflow (Required)</h2>
+      <p>Use this path for protein/metabolite mapping: prepare input, run mapper, then check outputs.</p>
+    </section>
+
     <section class="grid">
-      <article class="card">
+      <article class="card stage-map" id="input-template">
         <h2>Input Template</h2>
         <p>Recommended format is a 2-column TSV: <code>query</code> then <code>input_type</code>.</p>
         <div class="template-table-wrap">
@@ -419,7 +537,7 @@ glucose	metabolite_name</pre>
         </div>
       </article>
 
-      <article class="card">
+      <article class="card stage-map" id="run-mapper">
         <h2>Run Mapper</h2>
         <p>Run locally from your project root. Default blood context returns blood/plasma/unlabeled terms (serum excluded).</p>
         <p><code>--entity-type auto</code> is recommended for mixed inputs. Use <code>--entity-type protein</code> or <code>--entity-type metabolite</code> for single-entity batches.</p>
@@ -437,7 +555,12 @@ glucose	metabolite_name</pre>
       </article>
     </section>
 
-    <section class="card">
+    <section class="card workflow-banner stage-optional" id="optional-tuning">
+      <h2>Optional Tuning</h2>
+      <p>Use these only when you need higher recall, stricter context control, or richer aliases.</p>
+    </section>
+
+    <section class="card stage-optional" id="metabolite-aliases">
       <h2>Optional Metabolite Alias Build</h2>
       <p>For stronger metabolite mapping, build a local alias file from online sources (ChEBI + KEGG) without local source files.</p>
       <pre id="met-alias-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
@@ -470,7 +593,7 @@ glucose	metabolite_name</pre>
       </div>
     </section>
 
-    <section class="card">
+    <section class="card stage-optional" id="measurement-context">
       <h2>Measurement Context and Optional Arguments</h2>
       <p>Use <code>--measurement-context</code> to control tissue/matrix filtering and <code>--additional-contexts</code> to opt into extras.</p>
       <ul>
@@ -523,7 +646,12 @@ glucose	metabolite_name</pre>
       </div>
     </section>
 
-    <section class="card">
+    <section class="card workflow-banner stage-review" id="review-maintenance">
+      <h2>Review &amp; Maintenance</h2>
+      <p>Use these outputs and advanced commands for QC, triage, and cache refresh.</p>
+    </section>
+
+    <section class="card stage-review" id="outputs">
       <h2>Outputs</h2>
       <ul>
         <li><code>final_output/analytes_efo.tsv</code>: main mappings with confidence and validation.</li>
@@ -538,7 +666,7 @@ glucose	metabolite_name</pre>
       </div>
     </section>
 
-    <section class="card">
+    <section class="card stage-review" id="withheld-triage">
       <h2>Advanced: Withheld Triage (Optional)</h2>
       <p>Use this when you want to prioritize withheld candidates into likely accept/reject buckets for faster manual review.</p>
       <pre id="map-cmd-review-triage">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
@@ -559,7 +687,7 @@ glucose	metabolite_name</pre>
       </div>
     </section>
 
-    <section class="card">
+    <section class="card stage-review" id="refresh-cache">
       <h2>Refresh EFO Cache (Optional)</h2>
       <p>Use this when you want to refresh the full EFO/OBA measurement cache and rebuild the local index. Rebuild is on by default and should usually stay on.</p>
       <pre id="refresh-efo-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py refresh-efo-cache \
@@ -577,11 +705,61 @@ glucose	metabolite_name</pre>
       </div>
     </section>
 
-    <section class="card">
+    <section class="card stage-review" id="troubleshooting">
       <h2>Troubleshooting</h2>
       <ul>
         <li><code>python3: command not found</code>: install Python and restart terminal.</li>
         <li><code>ModuleNotFoundError</code>: activate virtual environment and run <code>python -m pip install -r requirements.txt</code>.</li>
+      </ul>
+    </section>
+
+    <section class="card appendix-card" id="trait-appendix">
+      <h2>Appendix: Disease/Phenotype Mapper (Separate Workflow)</h2>
+      <p>This is a separate optional workflow for reported traits, ICD10, and PheCode mapping (cache-first with <code>efo.obo</code> fallback).</p>
+      <p>For most users, use a 2-column input: <code>query</code> and <code>input_type</code>.</p>
+      <div class="template-table-wrap">
+        <table class="template-table">
+          <thead>
+            <tr>
+              <th>query</th>
+              <th>input_type</th>
+              <th>meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Depression</td><td>trait_text</td><td>free-text reported trait</td></tr>
+            <tr><td>I44</td><td>icd10</td><td>ICD10 code</td></tr>
+            <tr><td>250.23</td><td>phecode</td><td>PheCode</td></tr>
+            <tr><td>Coronary artery disease</td><td>trait_text</td><td>free-text reported trait</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre id="trait-input-template">query	input_type
+Depression	trait_text
+I44	icd10
+250.23	phecode
+Coronary artery disease	trait_text</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="trait-input-template">Copy Trait Input Template</button>
+      </div>
+      <div class="note">
+        Optional advanced columns <code>icd10</code> and <code>phecode</code> are supported, but not required for normal use.
+      </div>
+      <pre id="trait-map-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py trait-map \
+  --input data/traits.tsv \
+  --output final_output/traits_mapped.tsv \
+  --trait-cache final_output/code-EFO-mappings_final_mapping_cache.tsv \
+  --efo-obo skills/pqtl-measurement-mapper/references/efo.obo \
+  --min-score 0.82 \
+  --review-output final_output/traits_review.tsv \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn primary copy-btn" type="button" data-copy-target="trait-map-cmd">Copy Trait-Map Command</button>
+      </div>
+      <ul>
+        <li>Main output: <code>final_output/traits_mapped.tsv</code>.</li>
+        <li>Optional review output: <code>final_output/traits_review.tsv</code> (only <code>validation=review_required</code> rows).</li>
+        <li>Provenance field is included per row for easy notes-tab transfer.</li>
       </ul>
     </section>
 

@@ -31,6 +31,24 @@ cp docs/input_template.tsv data/analytes.tsv
 
 This writes your main results to `final_output/analytes_efo.tsv` and withheld items to `final_output/withheld_for_review.tsv`.
 
+Disease/phenotype trait mapping mode (optional):
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py trait-map \
+  --input data/traits.tsv \
+  --output final_output/traits_mapped.tsv \
+  --trait-cache final_output/code-EFO-mappings_final_mapping_cache.tsv \
+  --efo-obo skills/pqtl-measurement-mapper/references/efo.obo \
+  --min-score 0.82 \
+  --review-output final_output/traits_review.tsv \
+  --progress
+```
+
+Notes:
+- This mode is cache-first (curated trait cache), then falls back to `efo.obo`.
+- Input can include free-text trait, ICD10, and/or PheCode columns.
+- Output includes a per-row `provenance` field suitable for curation notes tabs.
+
 How mapping works (accession vs name input):
 
 - Accession input (`UniProt`, `HMDB`, `ChEBI`, `KEGG`) is treated as highest-confidence identity input.

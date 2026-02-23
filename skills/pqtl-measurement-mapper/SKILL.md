@@ -1,10 +1,10 @@
 ---
 name: pqtl-measurement-mapper
-description: Map protein or metabolite identifiers (including UniProt IDs, metabolite IDs, names, and gene symbols) to measurement trait terms in EFO, including OBA terms imported into EFO. Use when Codex must normalize pQTL/mQTL analyte inputs to controlled measurement EFO IDs and labels with machine-checkable validation status.
+description: Map protein or metabolite identifiers (including UniProt IDs, metabolite IDs, names, and gene symbols) to measurement trait terms in EFO, including OBA terms imported into EFO. Also supports disease/phenotype trait mapping from curated cache + efo.obo fallback. Use when Codex must normalize analyte or trait inputs to controlled ontology IDs with machine-checkable validation status.
 ---
 # pQTL Measurement Mapper
 
-Use this skill to convert analyte-like inputs into measurement ontology terms suitable for GWAS/pQTL metadata curation.
+Use this skill to convert analyte-like inputs into measurement ontology terms suitable for GWAS/pQTL metadata curation, and to map disease/phenotype reported traits via a high-precision cache-first workflow.
 
 ## Runtime
 
@@ -55,12 +55,20 @@ Write a TSV with one or more candidate mappings per input:
 
 Preferred downstream use: keep rows with `validation=validated`, then manually review medium-confidence rows.
 
+Disease/phenotype mode (`trait-map`) writes:
+- `input_query`, `input_type`, `input_icd10`, `input_phecode`
+- `mapped_trait_id`, `mapped_trait_label`
+- `confidence`, `matched_via`, `validation`, `evidence`, `provenance`
+
 Cache files used by default:
 - `references/analyte_to_efo_cache.tsv` (exact analyte -> EFO mappings)
 - `references/efo_measurement_terms_cache.tsv` (full measurement branch list from EFO/OBA imports: id/label/synonyms)
 - `references/uniprot_aliases.tsv` (optional accession -> alias expansion table)
 - `references/metabolite_aliases.tsv` (optional metabolite concept aliases and IDs: HMDB/ChEBI/KEGG)
 - Preferred matrix ordering for tie-breaks: `plasma,blood,serum`
+- Trait cache for disease/phenotype mode:
+  - `final_output/code-EFO-mappings_final_mapping_cache.tsv`
+  - fallback ontology: `references/efo.obo`
 
 ## Procedure
 
@@ -94,6 +102,14 @@ Cache files used by default:
 
 4. Write back high-confidence hits (optional)
 - Append validated mappings to analyte cache for future exact matches.
+
+5. Disease/phenotype mapping mode (optional)
+- Use `trait-map` for reported traits, ICD10, or PheCode inputs.
+- Mapping order:
+  - cache exact match by ICD10 / PheCode / normalized trait text
+  - cache lexical fallback
+  - `efo.obo` label/synonym fallback
+- Emit a provenance string per row for downstream notes tabs.
 
 ## Bundled Script
 
@@ -183,6 +199,20 @@ Map in bulk:
   --measurement-context blood \
   --matrix-priority plasma,blood,serum \
   --cache-writeback
+```
+
+Disease/phenotype mapping (cache + efo.obo fallback):
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py \
+  trait-map \
+  --input data/traits.tsv \
+  --output final_output/traits_mapped.tsv \
+  --trait-cache final_output/code-EFO-mappings_final_mapping_cache.tsv \
+  --efo-obo skills/pqtl-measurement-mapper/references/efo.obo \
+  --min-score 0.82 \
+  --review-output final_output/traits_review.tsv \
+  --progress
 ```
 
 Allow serum alongside blood (optional):
