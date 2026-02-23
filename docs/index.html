@@ -202,6 +202,41 @@
       gap: 20px;
     }
 
+    .template-table-wrap {
+      margin-top: 12px;
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .template-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 540px;
+      font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+      font-size: 0.82rem;
+    }
+
+    .template-table th,
+    .template-table td {
+      border-bottom: 1px solid rgba(15, 23, 42, 0.12);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    .template-table th {
+      background: rgba(15, 118, 110, 0.1);
+      color: #0f766e;
+      font-weight: 700;
+    }
+
+    .template-table tr:last-child td {
+      border-bottom: none;
+    }
+
     ul {
       margin: 8px 0 0;
       padding-left: 18px;
@@ -348,8 +383,30 @@ Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
     <section class="grid">
       <article class="card">
         <h2>Input Template</h2>
-        <p>Use one query column. Add <code>input_type</code> when known for better precision.</p>
-        <pre>query	input_type
+        <p>Recommended format is a 2-column TSV: <code>query</code> then <code>input_type</code>.</p>
+        <div class="template-table-wrap">
+          <table class="template-table">
+            <thead>
+              <tr>
+                <th>query</th>
+                <th>input_type</th>
+                <th>meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Q9ULI3</td><td>accession</td><td>UniProt accession</td></tr>
+              <tr><td>LIPC</td><td>gene_symbol</td><td>Gene symbol</td></tr>
+              <tr><td>ENSG00000172137</td><td>gene_id</td><td>Ensembl gene ID</td></tr>
+              <tr><td>Beta-glucosidase 2</td><td>protein_name</td><td>Protein name text</td></tr>
+              <tr><td>CHEBI:17234</td><td>metabolite_id</td><td>Metabolite database ID</td></tr>
+              <tr><td>glucose</td><td>metabolite_name</td><td>Metabolite name text</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          Save as tab-separated values (TSV), not CSV. Header row should be <code>query</code> and optional <code>input_type</code>.
+        </div>
+        <pre id="input-template-tsv">query	input_type
 Q9ULI3	accession
 LIPC	gene_symbol
 ENSG00000172137	gene_id
@@ -357,6 +414,7 @@ Beta-glucosidase 2	protein_name
 CHEBI:17234	metabolite_id
 glucose	metabolite_name</pre>
         <div class="btn-row">
+          <button class="btn ghost copy-btn" type="button" data-copy-target="input-template-tsv">Copy 2-Column TSV Example</button>
           <a class="btn ghost" href="./input_template.tsv" download>Download TSV Template</a>
         </div>
       </article>
