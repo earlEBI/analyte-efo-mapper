@@ -4588,7 +4588,10 @@ def metabolite_identity_match(
         profile_num_tokens = {tok for tok in profile_core if any(ch.isdigit() for ch in tok)}
         if profile_num_tokens and candidate_num_tokens and profile_num_tokens.isdisjoint(candidate_num_tokens):
             continue
-        if subject_terms_match(profile_terms, candidate_subject_terms, strict=False):
+        # Metabolite concept validation must stay strict to avoid near-name drift
+        # (for example creatinine aliases like "creatine anhydride" incorrectly
+        # validating plain creatine measurements).
+        if subject_terms_match(profile_terms, candidate_subject_terms, strict=True):
             if query_nums and candidate_nums and query_nums.isdisjoint(candidate_nums):
                 continue
             return True
