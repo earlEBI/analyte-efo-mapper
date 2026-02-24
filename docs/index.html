@@ -402,18 +402,19 @@
         <span class="legend-item"><span class="legend-dot" style="background:#475569"></span>Review / maintenance</span>
       </div>
       <div class="jump-nav">
-        <a class="jump-link" href="#quick-start">Quick Start</a>
-        <a class="jump-link" href="#first-time-setup">First-Time Setup</a>
-        <a class="jump-link" href="#main-workflow">Main Workflow</a>
-        <a class="jump-link" href="#optional-tuning">Optional Tuning</a>
-        <a class="jump-link" href="#review-maintenance">Review &amp; Maintenance</a>
-        <a class="jump-link" href="#trait-appendix">Disease/Phenotype Appendix</a>
+        <a class="jump-link" href="#setup">1. Setup</a>
+        <a class="jump-link" href="#input-file">2. Input File</a>
+        <a class="jump-link" href="#copy-paste-cells">3. Copy-Paste Commands</a>
+        <a class="jump-link" href="#additional-options">4. Additional Options</a>
       </div>
     </section>
 
-    <section class="card stage-setup" id="quick-start">
-      <h2>Quick Start</h2>
-      <p>If you already have Python and this repo cloned, this is the shortest full workflow.</p>
+    <section class="card stage-setup" id="setup">
+      <h2>1. Setup</h2>
+      <p>If you already have Python and this repo cloned, this is the shortest setup + run path.</p>
+      <div class="note">
+        First run on a new machine: execute <code>setup-bundled-caches</code> once to validate bundled protein/metabolite/trait caches and local index.
+      </div>
       <ol>
         <li>Edit <code>data/analytes.tsv</code> with your queries.</li>
         <li>Run the command below.</li>
@@ -434,7 +435,7 @@
     </section>
 
     <section class="card stage-setup" id="first-time-setup">
-      <h2>First-Time Setup (Novice)</h2>
+      <h2>Setup Details (Novice)</h2>
       <p>Do this once on a new machine. Follow the exact steps below even if you have never used Python before.</p>
       <ol>
         <li>
@@ -469,8 +470,10 @@ python -m pip install -U pip
 python -m pip install -r requirements.txt
 mkdir -p data final_output
 cp docs/input_template.tsv data/analytes.tsv</pre>
+          <pre id="setup-cache-cmd-mac">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py setup-bundled-caches</pre>
           <div class="btn-row">
             <button class="btn primary copy-btn" type="button" data-copy-target="setup-mac">Copy Mac/Linux Setup</button>
+            <button class="btn ghost copy-btn" type="button" data-copy-target="setup-cache-cmd-mac">Copy Offline Cache Setup</button>
           </div>
         </article>
         <article>
@@ -483,19 +486,24 @@ python -m pip install -U pip
 python -m pip install -r requirements.txt
 New-Item -ItemType Directory -Force data, final_output | Out-Null
 Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
+          <pre id="setup-cache-cmd-win">.venv\Scripts\python.exe skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py setup-bundled-caches</pre>
           <div class="btn-row">
             <button class="btn primary copy-btn" type="button" data-copy-target="setup-win">Copy Windows Setup</button>
+            <button class="btn ghost copy-btn" type="button" data-copy-target="setup-cache-cmd-win">Copy Offline Cache Setup</button>
           </div>
         </article>
       </div>
       <div class="note">
         Next: edit <code>data/analytes.tsv</code> with your own IDs (UniProt, gene symbol, gene ID, protein name, or metabolite IDs/names).
       </div>
+      <div class="note">
+        The offline cache setup command validates bundled protein/metabolite/trait caches and builds the local index without internet downloads.
+      </div>
     </section>
 
-    <section class="card workflow-banner stage-map" id="main-workflow">
-      <h2>Main Workflow (Required)</h2>
-      <p>Use this path for protein/metabolite mapping: prepare input, run mapper, then check outputs.</p>
+    <section class="card workflow-banner stage-map" id="input-file">
+      <h2>2. Input File</h2>
+      <p>Prepare your input file before running the copy-paste commands below.</p>
     </section>
 
     <section class="grid">
@@ -537,47 +545,111 @@ glucose	metabolite_name</pre>
         </div>
       </article>
 
-      <article class="card stage-map" id="run-mapper">
-        <h2>Run Mapper</h2>
-        <p>Run locally from your project root. Default blood context returns blood/plasma/unlabeled terms (serum excluded).</p>
-        <p><code>--entity-type auto</code> is recommended for mixed inputs. Use <code>--entity-type protein</code> or <code>--entity-type metabolite</code> for single-entity batches.</p>
-        <pre id="map-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+      <article class="card stage-map" id="copy-paste-cells">
+        <h2>3. Copy-Paste Commands</h2>
+        <p>Choose one command based on what you are mapping.</p>
+
+        <h3>a) Proteins</h3>
+        <pre id="map-cmd-protein">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
+  --entity-type protein \
   --workers 8 \
   --parallel-mode process \
   --progress</pre>
         <div class="btn-row">
-          <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd">Copy Run Command</button>
+          <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd-protein">Copy Protein Command</button>
+        </div>
+
+        <h3>b) Metabolites</h3>
+        <pre id="map-cmd-metabolite">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --metabolite-aliases skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --entity-type metabolite \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+        <div class="btn-row">
+          <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd-metabolite">Copy Metabolite Command</button>
+        </div>
+
+        <h3>c) Traits</h3>
+        <pre id="map-cmd-traits">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py trait-map \
+  --input data/traits.tsv \
+  --output final_output/traits_mapped.tsv \
+  --trait-cache skills/pqtl-measurement-mapper/references/trait_mapping_cache.tsv \
+  --efo-obo skills/pqtl-measurement-mapper/references/efo.obo \
+  --min-score 0.82 \
+  --review-output final_output/traits_review.tsv \
+  --progress</pre>
+        <div class="btn-row">
+          <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd-traits">Copy Trait Command</button>
+        </div>
+
+        <div class="note">
+          Default blood context returns blood/plasma/unlabeled terms and excludes serum unless you add <code>--additional-contexts serum</code>.
+        </div>
+        <div class="btn-row">
+          <button class="btn ghost copy-btn" type="button" data-copy-target="quickstart-cmd">Copy Generic Auto Command</button>
         </div>
       </article>
     </section>
 
-    <section class="card workflow-banner stage-optional" id="optional-tuning">
-      <h2>Optional Tuning</h2>
-      <p>Use these only when you need higher recall, stricter context control, or richer aliases.</p>
+    <section class="card workflow-banner stage-optional" id="additional-options">
+      <h2>4. Additional Options</h2>
+      <p>Use these only when you need context tuning, cache refresh, or deeper review outputs.</p>
     </section>
 
     <section class="card stage-optional" id="metabolite-aliases">
-      <h2>Optional Metabolite Alias Build</h2>
-      <p>For stronger metabolite mapping, build a local alias file from online sources (ChEBI + KEGG) without local source files.</p>
-      <pre id="met-alias-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
-  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --download-common-sources</pre>
+      <h2>Optional HMDB Metabolite Cache (Recommended)</h2>
+      <p>For reproducible metabolite mapping, use your pinned HMDB file version and build the cache once.</p>
+      <div class="note">
+        Normal mapping does not require a local HMDB file. The shipped <code>metabolite_aliases.tsv</code> is used by default.
+      </div>
+      <pre id="hmdb-pin-cmd">mkdir -p skills/pqtl-measurement-mapper/references/hmdb_source
+cp /path/to/your/structures.sdf skills/pqtl-measurement-mapper/references/hmdb_source/structures.sdf</pre>
       <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd">Copy Metabolite Alias Build Command</button>
+        <button class="btn ghost copy-btn" type="button" data-copy-target="hmdb-pin-cmd">Copy HMDB Pinning Command</button>
       </div>
       <pre id="met-alias-cmd-hmdb">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --download-common-sources \
-  --download-hmdb</pre>
+  --no-merge-existing</pre>
       <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-hmdb">Copy Download + HMDB Command</button>
+        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-hmdb">Copy HMDB Build Command</button>
+      </div>
+      <pre id="met-alias-cmd-local-hmdb">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --hmdb-xml /path/to/structures.sdf \
+  --no-merge-existing</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-local-hmdb">Copy Local HMDB File Command</button>
       </div>
       <div class="note">
-        If HMDB download fails, rerun without <code>--download-hmdb</code> or provide a local <code>--hmdb-xml</code> file.
+        By default, the command auto-detects HMDB files from <code>references/hmdb_source</code> and <code>references/metabolite_downloads</code>.
+      </div>
+      <div class="note">
+        If no local file is found, it auto-downloads your pinned HMDB bundle URL (<code>--hmdb-url</code>, default points to this repo's GitHub release asset).
+      </div>
+      <div class="note">
+        Maintainer step: publish <code>structures.sdf.gz</code> as a GitHub Release asset so all users pull the same HMDB version.
+      </div>
+      <div class="note">
+        If users do rebuild and have no local HMDB file, the command fetches your pinned bundle from GitHub release automatically.
+      </div>
+      <div class="note">
+        For fully offline installs, include <code>structures.sdf</code> or <code>structures.sdf.gz</code> inside <code>references/hmdb_source/</code>.
+      </div>
+      <pre id="met-alias-cmd-private-url">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --hmdb-url https://github.com/&lt;owner&gt;/&lt;repo&gt;/releases/download/&lt;tag&gt;/structures.sdf.gz \
+  --no-merge-existing</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-private-url">Copy Custom HMDB URL Command</button>
       </div>
       <pre id="map-cmd-met">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
   --input data/analytes.tsv \
@@ -589,7 +661,7 @@ glucose	metabolite_name</pre>
   --parallel-mode process \
   --progress</pre>
       <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-met">Copy Map Command With Metabolite Aliases</button>
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-met">Copy Map Command With Metabolite Cache</button>
       </div>
     </section>
 
@@ -710,56 +782,6 @@ glucose	metabolite_name</pre>
       <ul>
         <li><code>python3: command not found</code>: install Python and restart terminal.</li>
         <li><code>ModuleNotFoundError</code>: activate virtual environment and run <code>python -m pip install -r requirements.txt</code>.</li>
-      </ul>
-    </section>
-
-    <section class="card appendix-card" id="trait-appendix">
-      <h2>Appendix: Disease/Phenotype Mapper (Separate Workflow)</h2>
-      <p>This is a separate optional workflow for reported traits, ICD10, and PheCode mapping (cache-first with <code>efo.obo</code> fallback).</p>
-      <p>For most users, use a 2-column input: <code>query</code> and <code>input_type</code>.</p>
-      <div class="template-table-wrap">
-        <table class="template-table">
-          <thead>
-            <tr>
-              <th>query</th>
-              <th>input_type</th>
-              <th>meaning</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>Depression</td><td>trait_text</td><td>free-text reported trait</td></tr>
-            <tr><td>I44</td><td>icd10</td><td>ICD10 code</td></tr>
-            <tr><td>250.23</td><td>phecode</td><td>PheCode</td></tr>
-            <tr><td>Coronary artery disease</td><td>trait_text</td><td>free-text reported trait</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <pre id="trait-input-template">query	input_type
-Depression	trait_text
-I44	icd10
-250.23	phecode
-Coronary artery disease	trait_text</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="trait-input-template">Copy Trait Input Template</button>
-      </div>
-      <div class="note">
-        Optional advanced columns <code>icd10</code> and <code>phecode</code> are supported, but not required for normal use.
-      </div>
-      <pre id="trait-map-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py trait-map \
-  --input data/traits.tsv \
-  --output final_output/traits_mapped.tsv \
-  --trait-cache final_output/code-EFO-mappings_final_mapping_cache.tsv \
-  --efo-obo skills/pqtl-measurement-mapper/references/efo.obo \
-  --min-score 0.82 \
-  --review-output final_output/traits_review.tsv \
-  --progress</pre>
-      <div class="btn-row">
-        <button class="btn primary copy-btn" type="button" data-copy-target="trait-map-cmd">Copy Trait-Map Command</button>
-      </div>
-      <ul>
-        <li>Main output: <code>final_output/traits_mapped.tsv</code>.</li>
-        <li>Optional review output: <code>final_output/traits_review.tsv</code> (only <code>validation=review_required</code> rows).</li>
-        <li>Provenance field is included per row for easy notes-tab transfer.</li>
       </ul>
     </section>
 

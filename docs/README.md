@@ -17,7 +17,15 @@ source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -r requirements.txt
 cp docs/input_template.tsv data/analytes.tsv
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py setup-bundled-caches
 ```
+
+Bundled offline caches used by setup:
+- `skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv` (protein alias cache)
+- `skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv` (metabolite HMDB-derived alias cache)
+- `skills/pqtl-measurement-mapper/references/trait_mapping_cache.tsv` (disease/phenotype trait cache)
+
+These are local repository files; setup does not download these caches from the internet.
 
 Quick Start (5 lines):
 
@@ -30,6 +38,7 @@ cp docs/input_template.tsv data/analytes.tsv
 ```
 
 This writes your main results to `final_output/analytes_efo.tsv` and withheld items to `final_output/withheld_for_review.tsv`.
+`setup-bundled-caches` is offline/local only and validates the bundled protein, metabolite, and trait caches.
 
 Disease/phenotype trait mapping mode (optional):
 
@@ -37,7 +46,7 @@ Disease/phenotype trait mapping mode (optional):
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py trait-map \
   --input data/traits.tsv \
   --output final_output/traits_mapped.tsv \
-  --trait-cache final_output/code-EFO-mappings_final_mapping_cache.tsv \
+  --trait-cache skills/pqtl-measurement-mapper/references/trait_mapping_cache.tsv \
   --efo-obo skills/pqtl-measurement-mapper/references/efo.obo \
   --min-score 0.82 \
   --review-output final_output/traits_review.tsv \
@@ -86,24 +95,61 @@ Run mapping (mixed protein + metabolite inputs):
   --progress
 ```
 
-Optional: build a metabolite alias resource from online sources first (no local source files required):
+You can run this directly after clone/install.  
+No local HMDB file is required for normal mapping because the repo ships a metabolite alias cache.
+
+Optional (recommended for metabolite mapping): pin your HMDB file version, then build cache once:
+
+```bash
+mkdir -p skills/pqtl-measurement-mapper/references/hmdb_source
+cp /path/to/your/structures.sdf skills/pqtl-measurement-mapper/references/hmdb_source/structures.sdf
+```
+
+Then build aliases (auto-detects local HMDB file):
 
 ```bash
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --download-common-sources
+  --no-merge-existing
 ```
 
-Optional: also attempt HMDB download in the same command:
+If you already downloaded HMDB locally (for example `structures.sdf`), build from local HMDB only:
 
 ```bash
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --download-common-sources \
-  --download-hmdb
+  --hmdb-xml /path/to/structures.sdf \
+  --no-merge-existing
 ```
 
-If HMDB download fails, rerun without `--download-hmdb` (ChEBI + KEGG still build), or provide a local `--hmdb-xml` file.
+HMDB download/cache notes:
+- The command auto-detects HMDB files in `skills/pqtl-measurement-mapper/references/hmdb_source/` and `skills/pqtl-measurement-mapper/references/metabolite_downloads/`.
+- If no local HMDB file is found, it auto-downloads from `--hmdb-url` (default: this repo's GitHub release asset).
+- You can point `--hmdb-url` to your own private/public GitHub release bundle.
+- Maintainer setup: upload your pinned `structures.sdf.gz` as a GitHub Release asset so users can fetch the exact same HMDB version.
+- Use `--no-merge-existing` to regenerate a cleaner alias cache (normalized IDs and fewer noisy aliases).
+- Practical model:
+  - End users: no HMDB step needed unless rebuilding aliases.
+  - Rebuild step: pulls your pinned bundle from GitHub release automatically when local HMDB is absent.
+  - Fully offline installs: include `structures.sdf` or `structures.sdf.gz` in `references/hmdb_source/`.
+
+Example with explicit pinned bundle URL:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
+  --hmdb-url https://github.com/<owner>/<repo>/releases/download/<tag>/structures.sdf.gz \
+  --no-merge-existing
+```
+
+Optional (recommended after upgrading): refresh EFO measurement cache so metabolite xrefs
+(CHEBI/HMDB/KEGG) are available for direct ID-to-term matching:
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py refresh-efo-cache \
+  --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json
+```
 
 Then map with it:
 

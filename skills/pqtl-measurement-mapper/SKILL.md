@@ -67,7 +67,7 @@ Cache files used by default:
 - `references/metabolite_aliases.tsv` (optional metabolite concept aliases and IDs: HMDB/ChEBI/KEGG)
 - Preferred matrix ordering for tie-breaks: `plasma,blood,serum`
 - Trait cache for disease/phenotype mode:
-  - `final_output/code-EFO-mappings_final_mapping_cache.tsv`
+  - `references/trait_mapping_cache.tsv`
   - fallback ontology: `references/efo.obo`
 
 ## Procedure
@@ -147,24 +147,29 @@ Alternative from a local UniProt export file:
   --output-index skills/pqtl-measurement-mapper/references/measurement_index.json
 ```
 
-Build metabolite alias table from HMDB/ChEBI/KEGG resources (optional, recommended for metabolite mapping):
+Build metabolite alias table from pinned HMDB source (optional, recommended for metabolite mapping):
 
 ```bash
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py \
   metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --download-common-sources
+  --no-merge-existing
 ```
 
-Optional HMDB download in the same command:
+Optional explicit pinned HMDB URL (if local `references/hmdb_source` is not present):
 
 ```bash
 .venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py \
   metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --download-common-sources \
-  --download-hmdb
+  --hmdb-url https://github.com/<owner>/<repo>/releases/download/<tag>/structures.sdf.gz \
+  --no-merge-existing
 ```
+
+Notes:
+- Normal mapping does not require local HMDB if `references/metabolite_aliases.tsv` is already present.
+- Rebuild flow auto-detects local HMDB files in `references/hmdb_source/` and `references/metabolite_downloads/`.
+- If no local HMDB file is found, rebuild auto-downloads from `--hmdb-url` (default points to this repo release asset).
 
 Refresh EFO measurement cache and rebuild index (one command):
 
@@ -201,6 +206,13 @@ Map in bulk:
   --cache-writeback
 ```
 
+Offline bundled-cache setup (no internet downloads):
+
+```bash
+.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py \
+  setup-bundled-caches
+```
+
 Disease/phenotype mapping (cache + efo.obo fallback):
 
 ```bash
@@ -208,7 +220,7 @@ Disease/phenotype mapping (cache + efo.obo fallback):
   trait-map \
   --input data/traits.tsv \
   --output final_output/traits_mapped.tsv \
-  --trait-cache final_output/code-EFO-mappings_final_mapping_cache.tsv \
+  --trait-cache skills/pqtl-measurement-mapper/references/trait_mapping_cache.tsv \
   --efo-obo skills/pqtl-measurement-mapper/references/efo.obo \
   --min-score 0.82 \
   --review-output final_output/traits_review.tsv \
