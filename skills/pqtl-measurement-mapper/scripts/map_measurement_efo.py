@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 import urllib.request
 import time
@@ -5938,49 +5939,145 @@ def write_withheld_triage_tsv(
     }
     decision_counts: dict[str, int] = {}
     triage_rows: list[dict[str, str]] = []
+    term_meta: dict[str, dict[str, Any]] = index.get("term_meta", {})
+    metabolite_concept_index: dict[str, dict[str, Any]] = index.get("metabolite_concept_index", {})
+
+    def query_metabolite_identity(
+        query_value: str,
+        query_label: str,
+        query_hints: str,
+    ) -> tuple[set[str], set[str], set[str]]:
+        query_met_ids: set[str] = set()
+        for source in [query_value, query_label, query_hints]:
+            source_clean = normalize(source)
+            if not source_clean:
+                continue
+            for variant in query_variants(source_clean):
+                met_id = canonical_metabolite_id(variant)
+                if met_id:
+                    query_met_ids.add(met_id)
+            for met_id in extract_metabolite_ids_from_text(source_clean):
+                query_met_ids.add(met_id)
+
+        query_concepts: set[str] = set()
+        for source in [query_value, query_label]:
+            source_clean = normalize(source)
+            if not source_clean:
+                continue
+            concepts, _used_alias_resolution, _ambiguous_alias_resolution = resolve_query_metabolite_concepts(
+                source_clean,
+                index,
+            )
+            for concept in concepts:
+                concept_clean = normalize(concept)
+                if concept_clean:
+                    query_concepts.add(concept_clean)
+
+        concept_ids: set[str] = set()
+        for concept in query_concepts:
+            concept_meta = metabolite_concept_index.get(concept) or {}
+            if not isinstance(concept_meta, dict):
+                continue
+            for met_id in normalize_metabolite_ids(concept_meta.get("ids") or []):
+                concept_ids.add(met_id)
+
+        return query_met_ids, query_concepts, concept_ids
 
     for row in input_rows:
+        input_type = normalize_input_type(row.get("input_type") or "")
+        query_text = normalize(row.get("input_query") or "")
         query_acc = normalize(row.get("query_primary_accession") or "").upper()
         query_symbol = normalize(row.get("query_primary_symbol") or "").upper()
+        query_label = normalize(row.get("query_primary_label") or query_text)
+        query_hints = normalize(row.get("query_subject_hints") or "")
         candidate_subject = normalize(row.get("suggested_subject") or row.get("suggested_label") or "")
 
-        resolved_accessions_raw, _used_alias_resolution, _ambiguous_alias_resolution = resolve_query_accessions(
-            candidate_subject,
-            index,
-        )
-        resolved_accessions = sorted(
-            {
-                normalize(accession).upper()
-                for accession in resolved_accessions_raw
-                if normalize(accession)
-            }
-        )
+        resolved_accessions: list[str] = []
         resolved_symbols: set[str] = set()
-        for accession in resolved_accessions:
-            resolved_symbols |= accession_symbol_aliases(accession, index)
+        resolved_metabolite_ids: list[str] = []
+        resolved_metabolite_concepts: list[str] = []
 
-        if query_acc and resolved_accessions:
-            if query_acc in resolved_accessions:
-                qc_status = "supports_query_accession"
+        is_metabolite_row = input_type in {"metabolite_id", "metabolite_name"} or any(
+            canonical_metabolite_id(v) for v in query_variants(query_text)
+        )
+
+        if is_metabolite_row:
+            query_met_ids, query_concepts, concept_ids = query_metabolite_identity(
+                query_text,
+                query_label,
+                query_hints,
+            )
+            candidate_efo_id = normalize_id(row.get("suggested_efo_id") or "")
+            candidate_meta = term_meta.get(candidate_efo_id, {}) if candidate_efo_id else {}
+            candidate_met_ids = set(normalize_metabolite_ids(candidate_meta.get("metabolite_ids") or []))
+            if not candidate_met_ids:
+                candidate_met_ids = set(
+                    normalize_metabolite_ids(
+                        extract_metabolite_ids_from_text(row.get("suggested_label") or "")
+                        + extract_metabolite_ids_from_text(candidate_subject)
+                    )
+                )
+
+            id_overlap = query_met_ids & candidate_met_ids
+            concept_overlap = concept_ids & candidate_met_ids
+
+            resolved_metabolite_ids = sorted(candidate_met_ids)
+            resolved_metabolite_concepts = sorted(query_concepts)
+            same_symbol = bool(id_overlap or concept_overlap)
+
+            if id_overlap:
+                qc_status = "supports_query_metabolite_id"
+                triage_decision = "accept_high"
+                triage_rationale = "candidate term metabolite xref matches query metabolite ID"
+            elif concept_overlap:
+                qc_status = "supports_query_metabolite_concept"
+                triage_decision = "accept_high"
+                triage_rationale = "candidate term metabolite xref matches resolved query metabolite concept ID"
+            elif (query_met_ids or query_concepts or concept_ids) and candidate_met_ids:
+                qc_status = "conflicts_with_query_metabolite"
+                triage_decision = "reject_high"
+                triage_rationale = "candidate term metabolite xrefs conflict with resolved query metabolite identity"
             else:
-                qc_status = "conflicts_with_query_accession"
+                qc_status = "unresolved"
+                triage_decision = "review_needed"
+                triage_rationale = "metabolite identity could not be resolved to stable IDs in local alias/xref index"
         else:
-            qc_status = "unresolved"
+            resolved_accessions_raw, _used_alias_resolution, _ambiguous_alias_resolution = resolve_query_accessions(
+                candidate_subject,
+                index,
+            )
+            resolved_accessions = sorted(
+                {
+                    normalize(accession).upper()
+                    for accession in resolved_accessions_raw
+                    if normalize(accession)
+                }
+            )
+            for accession in resolved_accessions:
+                resolved_symbols |= accession_symbol_aliases(accession, index)
 
-        same_symbol = bool(query_symbol and query_symbol in resolved_symbols)
+            if query_acc and resolved_accessions:
+                if query_acc in resolved_accessions:
+                    qc_status = "supports_query_accession"
+                else:
+                    qc_status = "conflicts_with_query_accession"
+            else:
+                qc_status = "unresolved"
 
-        if qc_status == "supports_query_accession":
-            triage_decision = "accept_high"
-            triage_rationale = "candidate subject resolves to same accession as query"
-        elif qc_status == "conflicts_with_query_accession" and same_symbol:
-            triage_decision = "accept_medium"
-            triage_rationale = "different accession but same primary gene symbol (likely alias/isoform-equivalent)"
-        elif qc_status == "conflicts_with_query_accession":
-            triage_decision = "reject_high"
-            triage_rationale = "candidate subject resolves to different accession/gene symbol"
-        else:
-            triage_decision = "review_needed"
-            triage_rationale = "candidate subject did not resolve cleanly in local accession alias index"
+            same_symbol = bool(query_symbol and query_symbol in resolved_symbols)
+
+            if qc_status == "supports_query_accession":
+                triage_decision = "accept_high"
+                triage_rationale = "candidate subject resolves to same accession as query"
+            elif qc_status == "conflicts_with_query_accession" and same_symbol:
+                triage_decision = "accept_medium"
+                triage_rationale = "different accession but same primary gene symbol (likely alias/isoform-equivalent)"
+            elif qc_status == "conflicts_with_query_accession":
+                triage_decision = "reject_high"
+                triage_rationale = "candidate subject resolves to different accession/gene symbol"
+            else:
+                triage_decision = "review_needed"
+                triage_rationale = "candidate subject did not resolve cleanly in local accession alias index"
 
         decision_counts[triage_decision] = decision_counts.get(triage_decision, 0) + 1
         triage_rows.append(
@@ -5995,8 +6092,12 @@ def write_withheld_triage_tsv(
                 "suggested_subject": row.get("suggested_subject", ""),
                 "suggested_score": row.get("suggested_score", ""),
                 "accession_qc_status": qc_status,
-                "candidate_resolved_accessions": "|".join(resolved_accessions),
-                "candidate_resolved_symbols": "|".join(sorted(resolved_symbols)),
+                "candidate_resolved_accessions": "|".join(
+                    resolved_accessions if not is_metabolite_row else resolved_metabolite_ids
+                ),
+                "candidate_resolved_symbols": "|".join(
+                    sorted(resolved_symbols) if not is_metabolite_row else resolved_metabolite_concepts
+                ),
                 "same_symbol": "yes" if same_symbol else "no",
                 "triage_decision": triage_decision,
                 "triage_rationale": triage_rationale,
@@ -6539,8 +6640,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_map.add_argument(
         "--withheld-triage-output",
         help=(
-            "Optional TSV path to triage top withheld candidates from --review-output into "
-            "accept/reject/review buckets using accession identity checks"
+            "Optional TSV path to triage top withheld candidates into accept/reject/review "
+            "buckets using accession identity checks. If --review-output is not set, a "
+            "temporary internal review file is generated automatically."
         ),
     )
     p_map.add_argument(
@@ -6902,21 +7004,59 @@ def main() -> int:
                 )
                 print(f"[OK] wrote {review_queue_rows} review-queue rows to {args.review_queue_output}")
             if args.withheld_triage_output:
-                if review_output_path is None:
-                    raise ValueError("--withheld-triage-output requires --review-output")
-                triage_rows, triage_counts = write_withheld_triage_tsv(
-                    review_output_path,
-                    Path(args.withheld_triage_output),
-                    index=index,
-                )
-                triage_summary = ", ".join(
-                    f"{key}={triage_counts.get(key, 0)}"
-                    for key in ["reject_high", "review_needed", "accept_medium", "accept_high"]
-                )
-                print(
-                    f"[OK] wrote {triage_rows} withheld triage rows to {args.withheld_triage_output} "
-                    f"({triage_summary})"
-                )
+                triage_output_path = Path(args.withheld_triage_output)
+                triage_input_path = review_output_path
+                temp_review_path: Path | None = None
+                try:
+                    if triage_input_path is None:
+                        triage_output_path.parent.mkdir(parents=True, exist_ok=True)
+                        with tempfile.NamedTemporaryFile(
+                            mode="w",
+                            suffix=".tsv",
+                            prefix="withheld_review_",
+                            dir=str(triage_output_path.parent),
+                            delete=False,
+                        ) as tmp_handle:
+                            temp_review_path = Path(tmp_handle.name)
+                        temp_review_rows = write_review_tsv(
+                            rows,
+                            temp_review_path,
+                            index=index,
+                            min_score=args.min_score,
+                            matrix_priority=matrix_priority,
+                            measurement_context=measurement_context,
+                            additional_contexts=additional_contexts,
+                            additional_context_keywords=additional_context_keywords,
+                            name_mode=args.name_mode,
+                            entity_type=entity_type,
+                            top_n=max(1, args.review_top_n),
+                            reason_code_filter={"manual_validation_required"},
+                        )
+                        triage_input_path = temp_review_path
+                        print(
+                            f"[OK] generated {temp_review_rows} temporary withheld review rows "
+                            f"for triage"
+                        )
+
+                    triage_rows, triage_counts = write_withheld_triage_tsv(
+                        triage_input_path,
+                        triage_output_path,
+                        index=index,
+                    )
+                    triage_summary = ", ".join(
+                        f"{key}={triage_counts.get(key, 0)}"
+                        for key in ["reject_high", "review_needed", "accept_medium", "accept_high"]
+                    )
+                    print(
+                        f"[OK] wrote {triage_rows} withheld triage rows to {args.withheld_triage_output} "
+                        f"({triage_summary})"
+                    )
+                finally:
+                    if temp_review_path is not None:
+                        try:
+                            temp_review_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
             if args.cache_writeback:
                 added = write_back_cache(rows, Path(args.analyte_cache), args.cache_min_confidence)
                 print(f"[OK] cache write-back added {added} entries to {args.analyte_cache}")

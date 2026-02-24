@@ -582,21 +582,6 @@ Coronary artery disease	trait_text</pre>
           <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd-traits">Copy Trait Command</button>
         </div>
 
-        <div class="note">
-          Default blood context returns blood/plasma/unlabeled terms and excludes serum unless you add <code>--additional-contexts serum</code>.
-        </div>
-        <pre id="map-cmd-auto">analyte-efo-mapper map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress</pre>
-        <div class="btn-row">
-          <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-auto">Copy Generic Auto Command</button>
-        </div>
       </article>
     </section>
 
