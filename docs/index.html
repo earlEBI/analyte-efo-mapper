@@ -524,7 +524,8 @@ Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
               <tr><td>LIPC</td><td>gene_symbol</td><td>Gene symbol</td></tr>
               <tr><td>ENSG00000172137</td><td>gene_id</td><td>Ensembl gene ID</td></tr>
               <tr><td>Beta-glucosidase 2</td><td>protein_name</td><td>Protein name text</td></tr>
-              <tr><td>CHEBI:17234</td><td>metabolite_id</td><td>Metabolite database ID</td></tr>
+              <tr><td>HMDB0000122</td><td>metabolite_id</td><td>Metabolite database ID</td></tr>
+              <tr><td>CHEBI:38553</td><td>metabolite_id</td><td>Metabolite database ID</td></tr>
               <tr><td>glucose</td><td>metabolite_name</td><td>Metabolite name text</td></tr>
             </tbody>
           </table>
@@ -537,11 +538,23 @@ Q9ULI3	accession
 LIPC	gene_symbol
 ENSG00000172137	gene_id
 Beta-glucosidase 2	protein_name
-CHEBI:17234	metabolite_id
+HMDB0000122	metabolite_id
+CHEBI:38553	metabolite_id
 glucose	metabolite_name</pre>
         <div class="btn-row">
           <button class="btn ghost copy-btn" type="button" data-copy-target="input-template-tsv">Copy 2-Column TSV Example</button>
           <a class="btn ghost" href="./input_template.tsv" download>Download TSV Template</a>
+        </div>
+        <div class="note">
+          Trait workflow uses a separate input file (for command 3c), for example:
+        </div>
+        <pre id="trait-input-template-inline">query	input_type
+Depression	trait_text
+I44	icd10
+250.23	phecode
+Coronary artery disease	trait_text</pre>
+        <div class="btn-row">
+          <button class="btn ghost copy-btn" type="button" data-copy-target="trait-input-template-inline">Copy Trait TSV Example</button>
         </div>
       </article>
 
@@ -605,66 +618,6 @@ glucose	metabolite_name</pre>
       <p>Use these only when you need context tuning, cache refresh, or deeper review outputs.</p>
     </section>
 
-    <section class="card stage-optional" id="metabolite-aliases">
-      <h2>Optional HMDB Metabolite Cache (Recommended)</h2>
-      <p>For reproducible metabolite mapping, use your pinned HMDB file version and build the cache once.</p>
-      <div class="note">
-        Normal mapping does not require a local HMDB file. The shipped <code>metabolite_aliases.tsv</code> is used by default.
-      </div>
-      <pre id="hmdb-pin-cmd">mkdir -p skills/pqtl-measurement-mapper/references/hmdb_source
-cp /path/to/your/structures.sdf skills/pqtl-measurement-mapper/references/hmdb_source/structures.sdf</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="hmdb-pin-cmd">Copy HMDB Pinning Command</button>
-      </div>
-      <pre id="met-alias-cmd-hmdb">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
-  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --no-merge-existing</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-hmdb">Copy HMDB Build Command</button>
-      </div>
-      <pre id="met-alias-cmd-local-hmdb">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
-  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --hmdb-xml /path/to/structures.sdf \
-  --no-merge-existing</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-local-hmdb">Copy Local HMDB File Command</button>
-      </div>
-      <div class="note">
-        By default, the command auto-detects HMDB files from <code>references/hmdb_source</code> and <code>references/metabolite_downloads</code>.
-      </div>
-      <div class="note">
-        If no local file is found, it auto-downloads your pinned HMDB bundle URL (<code>--hmdb-url</code>, default points to this repo's GitHub release asset).
-      </div>
-      <div class="note">
-        Maintainer step: publish <code>structures.sdf.gz</code> as a GitHub Release asset so all users pull the same HMDB version.
-      </div>
-      <div class="note">
-        If users do rebuild and have no local HMDB file, the command fetches your pinned bundle from GitHub release automatically.
-      </div>
-      <div class="note">
-        For fully offline installs, include <code>structures.sdf</code> or <code>structures.sdf.gz</code> inside <code>references/hmdb_source/</code>.
-      </div>
-      <pre id="met-alias-cmd-private-url">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
-  --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --hmdb-url https://github.com/&lt;owner&gt;/&lt;repo&gt;/releases/download/&lt;tag&gt;/structures.sdf.gz \
-  --no-merge-existing</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="met-alias-cmd-private-url">Copy Custom HMDB URL Command</button>
-      </div>
-      <pre id="map-cmd-met">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --metabolite-aliases skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-met">Copy Map Command With Metabolite Cache</button>
-      </div>
-    </section>
-
     <section class="card stage-optional" id="measurement-context">
       <h2>Measurement Context and Optional Arguments</h2>
       <p>Use <code>--measurement-context</code> to control tissue/matrix filtering and <code>--additional-contexts</code> to opt into extras.</p>
@@ -710,6 +663,19 @@ cp /path/to/your/structures.sdf skills/pqtl-measurement-mapper/references/hmdb_s
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-queue">Copy Optional Full Review Queue Command</button>
       </div>
+      <pre id="map-cmd-withheld-triage">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-output final_output/withheld_for_review.tsv \
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
+      <div class="btn-row">
+        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-withheld-triage">Copy Optional Withheld Triage Command</button>
+      </div>
       <ul>
         <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-output</code>, <code>--review-queue-output</code>, <code>--withheld-triage-output</code>.</li>
       </ul>
@@ -728,34 +694,13 @@ cp /path/to/your/structures.sdf skills/pqtl-measurement-mapper/references/hmdb_s
       <ul>
         <li><code>final_output/analytes_efo.tsv</code>: main mappings with confidence and validation.</li>
         <li><code>final_output/withheld_for_review.tsv</code> (optional): only candidates withheld from auto-validation.</li>
+        <li><code>final_output/withheld_for_review_triage.tsv</code> (optional): triaged withheld rows to prioritize manual review.</li>
         <li><code>final_output/review_queue.tsv</code> (optional): broader manual-review file with closest unresolved candidates; useful suggestions, but many are likely incorrect.</li>
-        <li><code>final_output/withheld_for_review_triage.tsv</code> (optional): top withheld candidates triaged to <code>reject_high</code>, <code>review_needed</code>, <code>accept_medium</code>, <code>accept_high</code>, with <code>query_primary_label</code> and <code>suggested_subject</code> for full-name QC.</li>
         <li><code>final_output/analytes_unmapped.tsv</code>: optional pure unresolved list.</li>
         <li>Ontology IDs are written with underscores (for example <code>EFO_0802947</code>).</li>
       </ul>
       <div class="note">
         This website is documentation and templates. Mapping runs in your local Python environment.
-      </div>
-    </section>
-
-    <section class="card stage-review" id="withheld-triage">
-      <h2>Advanced: Withheld Triage (Optional)</h2>
-      <p>Use this when you want to prioritize withheld candidates into likely accept/reject buckets for faster manual review.</p>
-      <pre id="map-cmd-review-triage">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
-  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress</pre>
-      <div class="btn-row">
-        <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-triage">Copy Advanced Withheld Triage Command</button>
-      </div>
-      <div class="note">
-        Requires <code>--review-output</code> in the same run. This is optional and does not replace human QC.
       </div>
     </section>
 
