@@ -309,6 +309,10 @@ ROMAN_NUMERAL_TOKENS = frozenset(
 UNIPROT_ACCESSION_RE = re.compile(
     r"^(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})$"
 )
+# In UniProt, reviewed (Swiss-Prot) primaries are typically in the OPQ 6-char
+# namespace. We use this as a local heuristic because the bundled alias cache
+# does not carry an explicit reviewed/unreviewed flag per accession.
+UNIPROT_REVIEWED_LIKE_RE = re.compile(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$")
 HMDB_ID_RE = re.compile(r"^HMDB(\d{3,})$", re.IGNORECASE)
 CHEBI_ID_RE = re.compile(r"^CHEBI[:_](\d{1,7})$", re.IGNORECASE)
 KEGG_ID_RE = re.compile(r"^(?:KEGG[:_])?(?:CPD:|DR:)?([CD]\d{5})$", re.IGNORECASE)
@@ -4038,6 +4042,64 @@ def rank_accession_hits(hits: set[str], index: dict[str, Any]) -> list[str]:
     )
 
 
+@lru_cache(maxsize=200_000)
+def is_reviewed_like_accession(accession: str) -> bool:
+    acc = normalize(accession).upper()
+    return bool(UNIPROT_REVIEWED_LIKE_RE.match(acc))
+
+
+def accession_descriptive_alias_length(accession: str, index: dict[str, Any]) -> int:
+    acc = normalize(accession).upper()
+    if not acc:
+        return 0
+    accession_index = index.get("accession_alias_index", {})
+    aliases = accession_index.get(acc, []) if isinstance(accession_index, dict) else []
+    best = 0
+    for alias in aliases:
+        alias_clean = normalize(alias)
+        if not alias_clean:
+            continue
+        if canonical_accession(alias_clean):
+            continue
+        if is_symbol_like_alias(alias_clean):
+            continue
+        alias_norm = normalize(alias_clean)
+        if not alias_norm:
+            continue
+        best = max(best, len(alias_norm))
+    return best
+
+
+def prefer_reviewed_accessions(accessions: list[str], index: dict[str, Any]) -> list[str]:
+    # Accessions come from tied top alias/symbol scores. For symbol/name input,
+    # prefer reviewed-like primaries and then prefer the accession carrying the
+    # richest descriptive alias text.
+    normalized = sorted({normalize(acc).upper() for acc in accessions if normalize(acc)})
+    if len(normalized) <= 1:
+        return normalized
+
+    reviewed = [acc for acc in normalized if is_reviewed_like_accession(acc)]
+    pool = reviewed if reviewed else normalized
+    if len(pool) <= 1:
+        return pool
+
+    accession_index = index.get("accession_alias_index", {})
+    scored: list[tuple[str, tuple[int, int, int, str]]] = []
+    for acc in pool:
+        aliases = accession_index.get(acc, []) if isinstance(accession_index, dict) else []
+        descriptive_len = accession_descriptive_alias_length(acc, index)
+        alias_count = len(aliases)
+        # Prefer non-A0A accessions as a weak tie-breaker after descriptive evidence.
+        non_a0a = 1 if not acc.startswith("A0A") else 0
+        scored.append((acc, (descriptive_len, alias_count, non_a0a, acc)))
+
+    best_score = max(score for _acc, score in scored)
+    winners = sorted([acc for acc, score in scored if score == best_score])
+    if len(winners) == 1:
+        return winners
+    return winners
+
+
 def name_lookup_variants(query: str) -> list[str]:
     base = normalize(query)
     variants: set[str] = set(query_variants(query))
@@ -4204,6 +4266,10 @@ def resolve_query_accessions(query: str, index: dict[str, Any]) -> tuple[list[st
     if accession_scores:
         top = max(accession_scores.values())
         chosen = sorted(acc for acc, score in accession_scores.items() if score == top)
+        # For non-accession inputs, collapse tied symbol/alias hits to a
+        # reviewed-prioritized subset when possible.
+        if not any(canonical_accession(v) for v in variants):
+            chosen = prefer_reviewed_accessions(chosen, index)
         return chosen, used_alias_resolution, ambiguous_alias_resolution
     return [], used_alias_resolution, ambiguous_alias_resolution
 
