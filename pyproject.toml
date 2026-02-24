@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "analyte-efo-mapper"
+version = "0.1.0"
+description = "Offline mapper for protein/metabolite analytes and disease/phenotype traits to EFO/OBA"
+readme = "docs/README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+analyte-efo-mapper = "analyte_efo_mapper.cli:main"
+
+[tool.setuptools]
+packages = ["analyte_efo_mapper"]
