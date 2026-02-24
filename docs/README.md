@@ -1,4 +1,4 @@
-# GitHub Pages for pQTL Mapper
+# Analyte EFO Mapper Docs
 
 This folder is a static GitHub Pages site.
 
@@ -16,8 +16,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -r requirements.txt
+python -m pip install -e .
 cp docs/input_template.tsv data/analytes.tsv
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py setup-bundled-caches
+analyte-efo-mapper setup-bundled-caches
 ```
 
 Bundled offline caches used by setup:
@@ -27,23 +28,31 @@ Bundled offline caches used by setup:
 
 These are local repository files; setup does not download these caches from the internet.
 
+CLI command and upgrade:
+
+- Run commands via:
+  - `analyte-efo-mapper ...`
+- Upgrade after new GitHub changes:
+  - `git pull origin main`
+  - `python -m pip install -e .`
+
 Quick Start (5 lines):
 
 ```bash
 cp docs/input_template.tsv data/analytes.tsv
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv
 ```
 
-This writes your main results to `final_output/analytes_efo.tsv` and withheld items to `final_output/withheld_for_review.tsv`.
+This writes your main results to `final_output/analytes_efo.tsv` and triaged withheld candidates to `final_output/withheld_for_review_triage.tsv`.
 `setup-bundled-caches` is offline/local only and validates the bundled protein, metabolite, and trait caches.
 
 Disease/phenotype trait mapping mode (optional):
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py trait-map \
+analyte-efo-mapper trait-map \
   --input data/traits.tsv \
   --output final_output/traits_mapped.tsv \
   --trait-cache skills/pqtl-measurement-mapper/references/trait_mapping_cache.tsv \
@@ -74,18 +83,18 @@ Validation and context filters:
 - Context validation: `--measurement-context blood` (default) allows blood/plasma/unlabeled and excludes serum unless `--additional-contexts serum` is set.
 - Keyword context add-on: `--additional-context-keywords` can allow extra free-text contexts (for example `aorta`).
 - Ratio safeguard: ratio/quotient traits are blocked unless the query explicitly requests a ratio.
-- Auto-validation gate: lower-confidence token-only hits are withheld unless they pass stricter criteria; withheld rows go to `--review-output` when enabled.
+- Auto-validation gate: lower-confidence token-only hits are withheld unless they pass stricter criteria; use `--withheld-triage-output` to route these into a triaged review file.
 
 Practical expectation:
 
 - Accession-based input is usually most reliable.
 - Gene/symbol input can be reliable when alias resolution is unique.
-- Free-text name input is more variable and should be reviewed via `withheld_for_review.tsv` and optionally `review_queue.tsv`.
+- Free-text name input is more variable and should be reviewed via `withheld_for_review_triage.tsv` and optionally `review_queue.tsv`.
 
 Run mapping (mixed protein + metabolite inputs):
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
@@ -108,7 +117,7 @@ cp /path/to/your/structures.sdf skills/pqtl-measurement-mapper/references/hmdb_s
 Then build aliases (auto-detects local HMDB file):
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+analyte-efo-mapper metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
   --no-merge-existing
 ```
@@ -116,7 +125,7 @@ Then build aliases (auto-detects local HMDB file):
 If you already downloaded HMDB locally (for example `structures.sdf`), build from local HMDB only:
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+analyte-efo-mapper metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
   --hmdb-xml /path/to/structures.sdf \
   --no-merge-existing
@@ -136,7 +145,7 @@ HMDB download/cache notes:
 Example with explicit pinned bundle URL:
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py metabolite-alias-build \
+analyte-efo-mapper metabolite-alias-build \
   --output skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
   --hmdb-url https://github.com/<owner>/<repo>/releases/download/<tag>/structures.sdf.gz \
   --no-merge-existing
@@ -146,7 +155,7 @@ Optional (recommended after upgrading): refresh EFO measurement cache so metabol
 (CHEBI/HMDB/KEGG) are available for direct ID-to-term matching:
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py refresh-efo-cache \
+analyte-efo-mapper refresh-efo-cache \
   --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json
 ```
@@ -154,7 +163,7 @@ Optional (recommended after upgrading): refresh EFO measurement cache so metabol
 Then map with it:
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
@@ -162,45 +171,12 @@ Then map with it:
   --entity-type auto
 ```
 
-Optional withheld-for-review output:
+Optional triaged withheld output:
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress
-```
-
-`final_output/withheld_for_review.tsv` contains only rows where the top candidate was withheld from auto-validation (`reason_code=manual_validation_required`).
-
-Optional broader review queue output:
-
-```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --review-queue-output final_output/review_queue.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress
-```
-
-`final_output/review_queue.tsv` is for manual review of closest unresolved candidates; it is useful but can contain probable mismatches.
-
-Advanced optional triage for withheld candidates in the same run:
-
-```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
   --withheld-triage-output final_output/withheld_for_review_triage.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --entity-type auto \
@@ -216,11 +192,30 @@ Advanced optional triage for withheld candidates in the same run:
 - `accept_medium`: accession mismatch but same primary symbol (often alias/isoform-equivalent).
 - `accept_high`: candidate subject resolves to same accession.
 - Includes `query_primary_label` and `suggested_subject` so you can QC full-name alignment directly.
+- For metabolite rows, triage uses metabolite ID/xref overlap (HMDB/ChEBI/KEGG) and emits statuses such as `supports_query_metabolite_id`, `supports_query_metabolite_concept`, and `conflicts_with_query_metabolite`.
+
+Optional broader review queue output:
+
+```bash
+analyte-efo-mapper map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --review-queue-output final_output/review_queue.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress
+```
+
+`final_output/review_queue.tsv` is for manual review of closest unresolved candidates; it is useful but can contain probable mismatches.
+
+When `--review-output` is not set, triage mode generates an internal temporary withheld-review file automatically.
 
 Refresh EFO/OBA measurement cache and rebuild index:
 
 ```bash
-.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py refresh-efo-cache \
+analyte-efo-mapper refresh-efo-cache \
   --download-url https://github.com/EBISPOT/efo/releases/latest/download/efo.obo \
   --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
@@ -238,8 +233,6 @@ Defaults and options:
 
 - Default `--measurement-context blood` excludes serum-specific terms.
 - Add serum explicitly with `--additional-contexts serum`.
-- Output IDs are written with underscores (for example `EFO_0802947`).
-
 Measurement context usage:
 
 - Blood default (blood + plasma + unlabeled, excludes serum):
@@ -267,9 +260,8 @@ Useful optional arguments:
   - It is incremental for current input queries, not a full UniProt rebuild.
 - `--metabolite-aliases` local metabolite concept aliases for HMDB/ChEBI/KEGG/name resolution.
 - `--unmapped-output` write unresolved rows to a separate TSV.
-- `--review-output` write withheld-from-auto-validation rows (`withheld_for_review.tsv`).
 - `--review-queue-output` write optional broader manual-review suggestions (`review_queue.tsv`).
-- `--withheld-triage-output` triage top withheld candidates into accept/reject/review buckets (requires `--review-output`).
+- `--withheld-triage-output` triage top withheld candidates into accept/reject/review buckets.
 
 The published site URL is:
 

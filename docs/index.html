@@ -402,40 +402,15 @@
         <span class="legend-item"><span class="legend-dot" style="background:#475569"></span>Review / maintenance</span>
       </div>
       <div class="jump-nav">
-        <a class="jump-link" href="#setup">1. Setup</a>
+        <a class="jump-link" href="#first-time-setup">1. Setup Details (Novice)</a>
         <a class="jump-link" href="#input-file">2. Input File</a>
         <a class="jump-link" href="#copy-paste-cells">3. Copy-Paste Commands</a>
         <a class="jump-link" href="#additional-options">4. Additional Options</a>
       </div>
     </section>
 
-    <section class="card stage-setup" id="setup">
-      <h2>1. Setup</h2>
-      <p>If you already have Python and this repo cloned, this is the shortest setup + run path.</p>
-      <div class="note">
-        First run on a new machine: execute <code>setup-bundled-caches</code> once to validate bundled protein/metabolite/trait caches and local index.
-      </div>
-      <ol>
-        <li>Edit <code>data/analytes.tsv</code> with your queries.</li>
-        <li>Run the command below.</li>
-        <li>Use <code>analytes_efo.tsv</code> as main output and <code>withheld_for_review.tsv</code> for manual follow-up.</li>
-      </ol>
-      <pre id="quickstart-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
-  --input data/analytes.tsv \
-  --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
-  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
-  --entity-type auto \
-  --workers 8 \
-  --parallel-mode process \
-  --progress</pre>
-      <div class="btn-row">
-        <button class="btn primary copy-btn" type="button" data-copy-target="quickstart-cmd">Copy Quick Start Command</button>
-      </div>
-    </section>
-
     <section class="card stage-setup" id="first-time-setup">
-      <h2>Setup Details (Novice)</h2>
+      <h2>1. Setup Details (Novice)</h2>
       <p>Do this once on a new machine. Follow the exact steps below even if you have never used Python before.</p>
       <ol>
         <li>
@@ -468,12 +443,12 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -r requirements.txt
+python -m pip install -e .
 mkdir -p data final_output
-cp docs/input_template.tsv data/analytes.tsv</pre>
-          <pre id="setup-cache-cmd-mac">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py setup-bundled-caches</pre>
+cp docs/input_template.tsv data/analytes.tsv
+analyte-efo-mapper setup-bundled-caches</pre>
           <div class="btn-row">
             <button class="btn primary copy-btn" type="button" data-copy-target="setup-mac">Copy Mac/Linux Setup</button>
-            <button class="btn ghost copy-btn" type="button" data-copy-target="setup-cache-cmd-mac">Copy Offline Cache Setup</button>
           </div>
         </article>
         <article>
@@ -484,12 +459,12 @@ py -3 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -U pip
 python -m pip install -r requirements.txt
+python -m pip install -e .
 New-Item -ItemType Directory -Force data, final_output | Out-Null
-Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
-          <pre id="setup-cache-cmd-win">.venv\Scripts\python.exe skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py setup-bundled-caches</pre>
+Copy-Item docs\input_template.tsv data\analytes.tsv
+analyte-efo-mapper setup-bundled-caches</pre>
           <div class="btn-row">
             <button class="btn primary copy-btn" type="button" data-copy-target="setup-win">Copy Windows Setup</button>
-            <button class="btn ghost copy-btn" type="button" data-copy-target="setup-cache-cmd-win">Copy Offline Cache Setup</button>
           </div>
         </article>
       </div>
@@ -497,7 +472,10 @@ Copy-Item docs\input_template.tsv data\analytes.tsv</pre>
         Next: edit <code>data/analytes.tsv</code> with your own IDs (UniProt, gene symbol, gene ID, protein name, or metabolite IDs/names).
       </div>
       <div class="note">
-        The offline cache setup command validates bundled protein/metabolite/trait caches and builds the local index without internet downloads.
+        The final command in each setup block validates bundled protein/metabolite/trait caches and builds the local index without internet downloads.
+      </div>
+      <div class="note">
+        Run all mapper commands with <code>analyte-efo-mapper ...</code>. Upgrade flow: <code>git pull</code> then <code>python -m pip install -e .</code>.
       </div>
     </section>
 
@@ -563,10 +541,10 @@ Coronary artery disease	trait_text</pre>
         <p>Choose one command based on what you are mapping.</p>
 
         <h3>a) Proteins</h3>
-        <pre id="map-cmd-protein">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+        <pre id="map-cmd-protein">analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --entity-type protein \
   --workers 8 \
@@ -577,10 +555,10 @@ Coronary artery disease	trait_text</pre>
         </div>
 
         <h3>b) Metabolites</h3>
-        <pre id="map-cmd-metabolite">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+        <pre id="map-cmd-metabolite">analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --metabolite-aliases skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv \
   --entity-type metabolite \
@@ -592,7 +570,7 @@ Coronary artery disease	trait_text</pre>
         </div>
 
         <h3>c) Traits</h3>
-        <pre id="map-cmd-traits">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py trait-map \
+        <pre id="map-cmd-traits">analyte-efo-mapper trait-map \
   --input data/traits.tsv \
   --output final_output/traits_mapped.tsv \
   --trait-cache skills/pqtl-measurement-mapper/references/trait_mapping_cache.tsv \
@@ -607,8 +585,17 @@ Coronary artery disease	trait_text</pre>
         <div class="note">
           Default blood context returns blood/plasma/unlabeled terms and excludes serum unless you add <code>--additional-contexts serum</code>.
         </div>
+        <pre id="map-cmd-auto">analyte-efo-mapper map \
+  --input data/analytes.tsv \
+  --output final_output/analytes_efo.tsv \
+  --withheld-triage-output final_output/withheld_for_review_triage.tsv \
+  --index skills/pqtl-measurement-mapper/references/measurement_index.json \
+  --entity-type auto \
+  --workers 8 \
+  --parallel-mode process \
+  --progress</pre>
         <div class="btn-row">
-          <button class="btn ghost copy-btn" type="button" data-copy-target="quickstart-cmd">Copy Generic Auto Command</button>
+          <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-auto">Copy Generic Auto Command</button>
         </div>
       </article>
     </section>
@@ -628,7 +615,7 @@ Coronary artery disease	trait_text</pre>
         <li><code>--measurement-context cerebrospinal_fluid</code>: CSF-only context.</li>
         <li><code>--additional-context-keywords &lt;phrase&gt;</code>: free-text add-on (for example <code>aorta</code>, <code>adipose tissue</code>).</li>
       </ul>
-      <pre id="map-cmd-plasma">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+      <pre id="map-cmd-plasma">analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
@@ -639,7 +626,7 @@ Coronary artery disease	trait_text</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-plasma">Copy Plasma-Only Command</button>
       </div>
-      <pre id="map-cmd-aorta">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+      <pre id="map-cmd-aorta">analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
@@ -651,7 +638,7 @@ Coronary artery disease	trait_text</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-aorta">Copy Aorta Keyword Command</button>
       </div>
-      <pre id="map-cmd-review-queue">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+      <pre id="map-cmd-review-queue">analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
   --review-queue-output final_output/review_queue.tsv \
@@ -663,10 +650,9 @@ Coronary artery disease	trait_text</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-review-queue">Copy Optional Full Review Queue Command</button>
       </div>
-      <pre id="map-cmd-withheld-triage">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py map \
+      <pre id="map-cmd-withheld-triage">analyte-efo-mapper map \
   --input data/analytes.tsv \
   --output final_output/analytes_efo.tsv \
-  --review-output final_output/withheld_for_review.tsv \
   --withheld-triage-output final_output/withheld_for_review_triage.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
   --entity-type auto \
@@ -676,28 +662,24 @@ Coronary artery disease	trait_text</pre>
       <div class="btn-row">
         <button class="btn ghost copy-btn" type="button" data-copy-target="map-cmd-withheld-triage">Copy Optional Withheld Triage Command</button>
       </div>
+      <div class="note">
+        Triage works for both proteins and metabolites. Protein rows use accession/gene-symbol consistency; metabolite rows use HMDB/ChEBI/KEGG ID/xref consistency.
+      </div>
       <ul>
-        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-output</code>, <code>--review-queue-output</code>, <code>--withheld-triage-output</code>.</li>
+        <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-queue-output</code>, <code>--withheld-triage-output</code>.</li>
       </ul>
       <div class="note">
         <code>--auto-enrich-uniprot</code> is incremental: it fetches missing aliases only for accession-like queries in your current input, writes them to <code>uniprot_aliases.tsv</code>, then rebuilds the index. It is not a full UniProt rebuild.
       </div>
     </section>
 
-    <section class="card workflow-banner stage-review" id="review-maintenance">
-      <h2>Review &amp; Maintenance</h2>
-      <p>Use these outputs and advanced commands for QC, triage, and cache refresh.</p>
-    </section>
-
     <section class="card stage-review" id="outputs">
       <h2>Outputs</h2>
       <ul>
         <li><code>final_output/analytes_efo.tsv</code>: main mappings with confidence and validation.</li>
-        <li><code>final_output/withheld_for_review.tsv</code> (optional): only candidates withheld from auto-validation.</li>
         <li><code>final_output/withheld_for_review_triage.tsv</code> (optional): triaged withheld rows to prioritize manual review.</li>
         <li><code>final_output/review_queue.tsv</code> (optional): broader manual-review file with closest unresolved candidates; useful suggestions, but many are likely incorrect.</li>
         <li><code>final_output/analytes_unmapped.tsv</code>: optional pure unresolved list.</li>
-        <li>Ontology IDs are written with underscores (for example <code>EFO_0802947</code>).</li>
       </ul>
       <div class="note">
         This website is documentation and templates. Mapping runs in your local Python environment.
@@ -707,7 +689,7 @@ Coronary artery disease	trait_text</pre>
     <section class="card stage-review" id="refresh-cache">
       <h2>Refresh EFO Cache (Optional)</h2>
       <p>Use this when you want to refresh the full EFO/OBA measurement cache and rebuild the local index. Rebuild is on by default and should usually stay on.</p>
-      <pre id="refresh-efo-cmd">.venv/bin/python skills/pqtl-measurement-mapper/scripts/map_measurement_efo.py refresh-efo-cache \
+      <pre id="refresh-efo-cmd">analyte-efo-mapper refresh-efo-cache \
   --download-url https://github.com/EBISPOT/efo/releases/latest/download/efo.obo \
   --term-cache skills/pqtl-measurement-mapper/references/efo_measurement_terms_cache.tsv \
   --index skills/pqtl-measurement-mapper/references/measurement_index.json \
