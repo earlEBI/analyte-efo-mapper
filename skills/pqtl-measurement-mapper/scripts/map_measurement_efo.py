@@ -2,7 +2,7 @@
 """Bulk/offline mapper for analyte/trait queries -> ontology IDs.
 
 Architecture:
-- setup-bundled-caches: validate/use bundled local caches and build local index (offline)
+- setup-bundled-caches: validate/use bundled local caches and build local index (offline-first)
 - index-build: build a local JSON index from cache/reference files
 - map: map protein/metabolite query files using local index only (fast, scalable)
 - trait-map: map disease/phenotype traits via curated trait cache + efo.obo fallback
@@ -345,6 +345,9 @@ DEFAULT_CHEBI_NAMES_URL = "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/
 DEFAULT_KEGG_CONV_URL = "https://rest.kegg.jp/conv/chebi/compound"
 DEFAULT_EFO_OBO_URL = "https://github.com/EBISPOT/efo/releases/latest/download/efo.obo"
 DEFAULT_EFO_OBO_LOCAL = Path(__file__).resolve().parents[1] / "references" / "efo.obo"
+DEFAULT_EFO_OBO_BUNDLED_URL = (
+    "https://github.com/earlEBI/analyte-efo-mapper/releases/latest/download/efo.obo.gz"
+)
 DEFAULT_TRAIT_CACHE = Path(__file__).resolve().parents[1] / "references" / "trait_mapping_cache.tsv"
 LEGACY_TRAIT_CACHE = Path(__file__).resolve().parents[3] / "final_output" / "code-EFO-mappings_final_mapping_cache.tsv"
 DEFAULT_MEASUREMENT_ROOT = "EFO:0001444"
@@ -2672,6 +2675,82 @@ def filename_from_url(url: str, fallback: str) -> str:
     path = urllib.parse.urlparse(url).path
     name = Path(path).name
     return name or fallback
+
+
+def decompress_gzip_file(source_gz: Path, destination: Path) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(source_gz, "rb") as src, destination.open("wb") as dst:
+        while True:
+            chunk = src.read(1024 * 1024)
+            if not chunk:
+                break
+            dst.write(chunk)
+    return destination
+
+
+def looks_like_obo(path: Path, max_lines: int = 20000) -> bool:
+    if not path.exists() or path.stat().st_size <= 0:
+        return False
+    seen_format = False
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            for idx, raw_line in enumerate(handle):
+                line = raw_line.strip()
+                if line.startswith("format-version:"):
+                    seen_format = True
+                if line == "[Term]":
+                    return True
+                if idx >= max_lines:
+                    break
+    except OSError:
+        return False
+    return seen_format
+
+
+def ensure_efo_obo_available(
+    *,
+    efo_obo_path: Path,
+    bundled_url: str,
+    timeout: float,
+) -> tuple[Path, str]:
+    if looks_like_obo(efo_obo_path):
+        return efo_obo_path, "local"
+
+    local_gz = Path(str(efo_obo_path) + ".gz")
+    if local_gz.exists() and local_gz.stat().st_size > 0:
+        decompress_gzip_file(local_gz, efo_obo_path)
+        if not looks_like_obo(efo_obo_path):
+            raise ValueError(
+                f"Local gzip source exists but did not produce a valid OBO file: {local_gz}"
+            )
+        return efo_obo_path, "local-gz"
+
+    url = normalize(bundled_url)
+    if not url:
+        raise FileNotFoundError(
+            f"EFO OBO not found at {efo_obo_path}, and no bundled URL was provided."
+        )
+
+    fallback_name = f"{efo_obo_path.name}.gz"
+    download_name = filename_from_url(url, fallback_name)
+    download_path = efo_obo_path.parent / download_name
+    download_to_file(url, download_path, timeout=timeout)
+    if not download_path.exists() or download_path.stat().st_size <= 0:
+        raise ValueError(f"Downloaded EFO OBO bundle is empty: {download_path}")
+
+    if download_path.suffix.lower() == ".gz":
+        decompress_gzip_file(download_path, efo_obo_path)
+        if not looks_like_obo(efo_obo_path):
+            raise ValueError(
+                f"Downloaded gzip did not produce a valid OBO file: {download_path}"
+            )
+        return efo_obo_path, "downloaded-gz"
+
+    if download_path != efo_obo_path:
+        shutil.copy2(download_path, efo_obo_path)
+    if not looks_like_obo(efo_obo_path):
+        raise ValueError(f"Downloaded file is not a valid OBO: {download_path}")
+    return efo_obo_path, "downloaded"
 
 
 def extract_first_xml_from_zip(zip_path: Path, output_dir: Path) -> Path:
@@ -6961,8 +7040,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_setup = sub.add_parser(
         "setup-bundled-caches",
         help=(
-            "Offline setup using bundled local caches only "
-            "(protein aliases, metabolite aliases, trait cache) and local index build"
+            "Offline-first setup using bundled local caches "
+            "(protein aliases, metabolite aliases, trait cache); auto-provisions efo.obo "
+            "from bundled URL only when missing, then builds local index"
         ),
     )
     p_setup.add_argument(
@@ -7040,6 +7120,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--trait-cache",
         default=str(DEFAULT_TRAIT_CACHE),
         help="Bundled trait cache TSV path",
+    )
+    p_setup.add_argument(
+        "--efo-obo",
+        default=str(DEFAULT_EFO_OBO_LOCAL),
+        help=(
+            "Local EFO OBO path required by trait-map. If missing, setup will auto-provision "
+            "from --efo-obo-bundled-url."
+        ),
+    )
+    p_setup.add_argument(
+        "--efo-obo-bundled-url",
+        default=DEFAULT_EFO_OBO_BUNDLED_URL,
+        help=(
+            "Pinned bundled EFO OBO URL (recommended: your repo release asset, e.g. efo.obo.gz). "
+            "Used only when --efo-obo is missing."
+        ),
+    )
+    p_setup.add_argument(
+        "--efo-obo-download-timeout",
+        type=float,
+        default=120.0,
+        help="Timeout (seconds) when auto-fetching bundled EFO OBO",
     )
     p_setup.add_argument(
         "--seed-legacy-trait-cache",
@@ -7394,7 +7496,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_trait.add_argument(
         "--efo-obo",
         default=str(DEFAULT_EFO_OBO_LOCAL),
-        help="EFO OBO path used for fallback label/synonym mapping",
+        help=(
+            "EFO OBO path used for fallback label/synonym mapping. If missing, trait-map will "
+            "auto-provision from --efo-obo-bundled-url."
+        ),
+    )
+    p_trait.add_argument(
+        "--efo-obo-bundled-url",
+        default=DEFAULT_EFO_OBO_BUNDLED_URL,
+        help=(
+            "Pinned bundled EFO OBO URL (recommended: your repo release asset, e.g. efo.obo.gz). "
+            "Used only when --efo-obo is missing."
+        ),
+    )
+    p_trait.add_argument(
+        "--efo-obo-download-timeout",
+        type=float,
+        default=120.0,
+        help="Timeout (seconds) when auto-fetching bundled EFO OBO",
     )
     p_trait.add_argument("--top-k", type=int, default=1, help="Candidates to emit per input row")
     p_trait.add_argument("--min-score", type=float, default=0.82, help="Minimum confidence score to accept candidate")
@@ -7434,6 +7553,7 @@ def main() -> int:
             uniprot_light_output_path = Path(args.uniprot_light_output)
             metabolite_alias_path = Path(args.metabolite_aliases)
             trait_cache_path = Path(args.trait_cache)
+            efo_obo_setup_path = Path(args.efo_obo)
             index_path = Path(args.index)
 
             if args.seed_legacy_trait_cache:
@@ -7444,17 +7564,29 @@ def main() -> int:
                         f"from legacy file {LEGACY_TRAIT_CACHE}"
                     )
 
+            efo_obo_setup_path, efo_obo_source = ensure_efo_obo_available(
+                efo_obo_path=efo_obo_setup_path,
+                bundled_url=args.efo_obo_bundled_url,
+                timeout=float(args.efo_obo_download_timeout),
+            )
+            if efo_obo_source != "local":
+                print(
+                    f"[OK] provisioned EFO OBO at {efo_obo_setup_path} "
+                    f"(source={efo_obo_source})"
+                )
+
             required_paths = [
                 ("term_cache", term_cache_path),
                 ("analyte_cache", analyte_cache_path),
                 ("uniprot_aliases", uniprot_alias_source_path),
                 ("metabolite_aliases", metabolite_alias_path),
                 ("trait_cache", trait_cache_path),
+                ("efo_obo", efo_obo_setup_path),
             ]
             missing = [f"{name}={path}" for name, path in required_paths if not path.exists()]
             if missing:
                 raise FileNotFoundError(
-                    "Missing bundled cache files (no internet fallback in this command): "
+                    "Missing setup inputs after bundled checks/provisioning: "
                     + ", ".join(missing)
                 )
 
@@ -7522,7 +7654,8 @@ def main() -> int:
                 f"uniprot_alias_path={uniprot_alias_index_path}, "
                 f"protein_aliases={len(uniprot_aliases)}, "
                 f"metabolite_concepts={len(metabolite_alias_records)}, "
-                f"trait_records={len(trait_cache_index.get('records', []))})"
+                f"trait_records={len(trait_cache_index.get('records', []))}, "
+                f"efo_obo={efo_obo_setup_path})"
             )
             return 0
 
@@ -7859,6 +7992,16 @@ def main() -> int:
                     f"from legacy file {LEGACY_TRAIT_CACHE}"
                 )
             efo_obo_path = Path(args.efo_obo)
+            efo_obo_path, efo_obo_source = ensure_efo_obo_available(
+                efo_obo_path=efo_obo_path,
+                bundled_url=args.efo_obo_bundled_url,
+                timeout=float(args.efo_obo_download_timeout),
+            )
+            if efo_obo_source != "local":
+                print(
+                    f"[OK] provisioned EFO OBO at {efo_obo_path} "
+                    f"(source={efo_obo_source})"
+                )
             trait_cache_index = load_trait_cache_index(trait_cache_path)
             ontology_index = load_trait_ontology_index(efo_obo_path)
             cache_resolution, cache_qc_stats, cache_qc_issues = build_trait_cache_term_resolution(

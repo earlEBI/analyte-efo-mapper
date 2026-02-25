@@ -34,6 +34,11 @@ Bundled offline caches used by setup:
 - `skills/pqtl-measurement-mapper/references/trait_mapping_cache.tsv` (disease/phenotype trait cache)
 
 These are local repository files; setup does not download these caches from the internet.
+Trait mapping also needs `skills/pqtl-measurement-mapper/references/efo.obo`. If missing, `setup-bundled-caches`
+and `trait-map` auto-provision it from the bundled pinned URL (default release asset:
+`efo.obo.gz` in this repo).
+If you maintain your own fork/release asset, override with:
+`--efo-obo-bundled-url https://github.com/<owner>/<repo>/releases/latest/download/efo.obo.gz`
 
 Cache provenance and refresh/build path:
 - `uniprot_aliases.tsv`: bundled source alias cache in repo; setup builds `uniprot_aliases_light.tsv` by default for faster mapping.
@@ -43,6 +48,9 @@ Cache provenance and refresh/build path:
 - `efo_measurement_terms_cache.tsv`: bundled measurement-term cache in repo; can be rebuilt from OBO via `refresh-efo-cache`.
 - `measurement_index.json`: local compiled index built from caches by `setup-bundled-caches` or `index-build`.
 - `efo.obo`: local ontology file used by `trait-map` for fallback and obsolete-ID checks.
+- `efo_measurement_terms_cache.tsv` and `efo.obo` are intentionally separate:
+  - measurement cache is optimized for protein/metabolite mapping runtime
+  - full `efo.obo` is used for trait fallback + obsolete-term validation
 
 Optional (recommended if you plan to use `input_type=gene_id` heavily): backfill UniProt gene IDs into the lightweight cache during setup:
 

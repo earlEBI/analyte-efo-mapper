@@ -476,6 +476,12 @@ analyte-efo-mapper setup-bundled-caches</pre>
         The final command in each setup block validates bundled protein/metabolite/trait caches and builds the local index without internet downloads.
       </div>
       <div class="note">
+        Trait mode requires <code>skills/pqtl-measurement-mapper/references/efo.obo</code>. If missing, setup/trait-map can auto-provision it from your pinned bundled URL (recommended: repo release asset <code>efo.obo.gz</code>).
+      </div>
+      <div class="note">
+        To use your own release asset, pass <code>--efo-obo-bundled-url https://github.com/&lt;owner&gt;/&lt;repo&gt;/releases/latest/download/efo.obo.gz</code>.
+      </div>
+      <div class="note">
         Setup uses a lightweight UniProt profile by default (reviewed-like + requires gene symbol) and writes
         <code>skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv</code>.
       </div>
@@ -608,8 +614,12 @@ Coronary artery disease	trait_text</pre>
         <li><code>metabolite_aliases.tsv</code> (bundled HMDB-derived aliases, optionally rebuilt from pinned HMDB SDF).</li>
         <li><code>trait_mapping_cache.tsv</code> (bundled curated trait cache).</li>
         <li><code>efo_measurement_terms_cache.tsv</code> (bundled measurement terms, refreshable via <code>refresh-efo-cache</code>).</li>
+        <li><code>efo.obo</code> (full ontology for trait fallback + obsolete-ID checks; auto-provisioned if missing).</li>
         <li><code>measurement_index.json</code> (local compiled index from setup).</li>
       </ul>
+      <div class="note">
+        Measurement cache and full <code>efo.obo</code> are intentionally separate: measurement cache is runtime-optimized for analyte mapping; full OBO is for trait mapping and ontology QC.
+      </div>
       <h3>2) Mapping order and method</h3>
       <ul>
         <li><strong>Protein/metabolite <code>map</code>:</strong> resolve IDs first (UniProt/HMDB/ChEBI/KEGG), then exact/synonym term hits, then token/lexical fallback, then validation gates.</li>
