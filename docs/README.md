@@ -28,6 +28,14 @@ Bundled offline caches used by setup:
 
 These are local repository files; setup does not download these caches from the internet.
 
+Optional (recommended if you plan to use `input_type=gene_id` heavily): backfill UniProt gene IDs into the local alias cache:
+
+```bash
+analyte-efo-mapper uniprot-alias-enrich \
+  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv \
+  --workers 8
+```
+
 CLI command and upgrade:
 
 - Run commands via:
@@ -258,6 +266,8 @@ Useful optional arguments:
 - `--entity-type auto|protein|metabolite` routing/validation mode.
 - `--auto-enrich-uniprot` checks UniProt for accession-like queries missing from your local alias file, appends returned aliases to `uniprot_aliases.tsv`, and rebuilds index before mapping.
   - It is incremental for current input queries, not a full UniProt rebuild.
+- `uniprot-alias-enrich` backfills missing UniProt gene IDs (and aliases) across your existing `uniprot_aliases.tsv` cache.
+  - Use `--refresh-all` if you want to refresh all rows, not only rows with empty `gene_ids`.
 - `--metabolite-aliases` local metabolite concept aliases for HMDB/ChEBI/KEGG/name resolution.
 - `--unmapped-output` write unresolved rows to a separate TSV.
 - `--review-queue-output` write optional broader manual-review suggestions (`review_queue.tsv`).

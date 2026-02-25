@@ -475,6 +475,9 @@ analyte-efo-mapper setup-bundled-caches</pre>
         The final command in each setup block validates bundled protein/metabolite/trait caches and builds the local index without internet downloads.
       </div>
       <div class="note">
+        If you plan to map many <code>gene_id</code> inputs, run once after setup: <code>analyte-efo-mapper uniprot-alias-enrich --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv --workers 8</code>
+      </div>
+      <div class="note">
         Run all mapper commands with <code>analyte-efo-mapper ...</code>. Upgrade flow: <code>git pull</code> then <code>python -m pip install -e .</code>.
       </div>
     </section>
@@ -655,6 +658,9 @@ Coronary artery disease	trait_text</pre>
       </ul>
       <div class="note">
         <code>--auto-enrich-uniprot</code> is incremental: it fetches missing aliases only for accession-like queries in your current input, writes them to <code>uniprot_aliases.tsv</code>, then rebuilds the index. It is not a full UniProt rebuild.
+      </div>
+      <div class="note">
+        For full gene-ID coverage in your local UniProt cache, run: <code>analyte-efo-mapper uniprot-alias-enrich --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv --workers 8</code> (add <code>--refresh-all</code> to refresh every accession row).
       </div>
     </section>
 

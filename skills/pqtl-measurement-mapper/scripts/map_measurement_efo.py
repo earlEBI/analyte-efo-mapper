@@ -313,6 +313,8 @@ UNIPROT_ACCESSION_RE = re.compile(
 # namespace. We use this as a local heuristic because the bundled alias cache
 # does not carry an explicit reviewed/unreviewed flag per accession.
 UNIPROT_REVIEWED_LIKE_RE = re.compile(r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$")
+ENSEMBL_GENE_ID_RE = re.compile(r"^ENSG\d{6,}(?:\.\d+)?$", re.IGNORECASE)
+ENTREZ_GENE_ID_RE = re.compile(r"^(?:NCBIGENE:|GENEID:|ENTREZ:)?(\d{2,9})$", re.IGNORECASE)
 HMDB_ID_RE = re.compile(r"^HMDB(\d{3,})$", re.IGNORECASE)
 CHEBI_ID_RE = re.compile(r"^CHEBI[:_](\d{1,7})$", re.IGNORECASE)
 KEGG_ID_RE = re.compile(r"^(?:KEGG[:_])?(?:CPD:|DR:)?([CD]\d{5})$", re.IGNORECASE)
@@ -681,6 +683,29 @@ def canonical_accession(value: str) -> str:
         if UNIPROT_ACCESSION_RE.match(base):
             return base
     return ""
+
+
+@lru_cache(maxsize=200_000)
+def gene_id_alias_variants(value: str, include_unprefixed_numeric: bool = False) -> tuple[str, ...]:
+    token = normalize(value).upper().replace(" ", "")
+    if not token:
+        return ()
+    variants: set[str] = set()
+
+    ensembl_match = ENSEMBL_GENE_ID_RE.match(token)
+    if ensembl_match:
+        variants.add(token.split(".", 1)[0])
+
+    entrez_match = ENTREZ_GENE_ID_RE.match(token)
+    if entrez_match:
+        digits = entrez_match.group(1)
+        variants.add(f"NCBIGENE:{digits}")
+        variants.add(f"GENEID:{digits}")
+        variants.add(f"ENTREZ:{digits}")
+        if include_unprefixed_numeric:
+            variants.add(digits)
+
+    return tuple(sorted(variants))
 
 
 @lru_cache(maxsize=200_000)
@@ -2073,6 +2098,15 @@ def load_uniprot_aliases(path: Path) -> dict[str, list[str]]:
             if gene and normalize(gene):
                 alias_values.append(normalize(gene))
 
+            gene_ids_col = row.get("gene_ids") or row.get("gene_id") or ""
+            if gene_ids_col:
+                for gid_raw in gene_ids_col.split("|"):
+                    gid = normalize(gid_raw)
+                    if not gid:
+                        continue
+                    for gid_variant in gene_id_alias_variants(gid, include_unprefixed_numeric=False):
+                        alias_values.append(gid_variant)
+
             if not alias_values:
                 continue
             result.setdefault(acc, set()).update(alias_values)
@@ -2093,12 +2127,27 @@ def load_uniprot_alias_records(path: Path) -> dict[str, dict[str, str]]:
                 continue
             aliases = [normalize(x) for x in (row.get("aliases") or "").split("|") if normalize(x)]
             gene = normalize(row.get("gene") or "")
+            gene_ids_raw = [
+                normalize(x)
+                for x in (row.get("gene_ids") or row.get("gene_id") or "").split("|")
+                if normalize(x)
+            ]
+            gene_ids: set[str] = set()
+            for gid in gene_ids_raw:
+                gene_ids.update(gene_id_alias_variants(gid, include_unprefixed_numeric=False))
             source = normalize(row.get("source") or "")
             # Merge duplicate rows by accession if present.
             if acc in records:
                 prior_aliases = [normalize(x) for x in records[acc].get("aliases", "").split("|") if normalize(x)]
                 merged = sorted(set(prior_aliases) | set(aliases))
                 records[acc]["aliases"] = "|".join(merged)
+                prior_gene_ids = {
+                    normalize(x)
+                    for x in records[acc].get("gene_ids", "").split("|")
+                    if normalize(x)
+                }
+                merged_gene_ids = sorted(prior_gene_ids | gene_ids)
+                records[acc]["gene_ids"] = "|".join(merged_gene_ids)
                 if not records[acc].get("gene") and gene:
                     records[acc]["gene"] = gene
                 continue
@@ -2106,6 +2155,7 @@ def load_uniprot_alias_records(path: Path) -> dict[str, dict[str, str]]:
                 "accession": acc,
                 "aliases": "|".join(sorted(set(aliases))),
                 "gene": gene,
+                "gene_ids": "|".join(sorted(gene_ids)),
                 "source": source,
             }
     return records
@@ -2113,18 +2163,23 @@ def load_uniprot_alias_records(path: Path) -> dict[str, dict[str, str]]:
 
 def write_uniprot_alias_records(path: Path, records: dict[str, dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["accession", "aliases", "gene", "source"]
+    fields = ["accession", "aliases", "gene", "gene_ids", "source"]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
         writer.writeheader()
         for acc in sorted(records):
             row = records[acc]
             aliases = [normalize(x) for x in (row.get("aliases") or "").split("|") if normalize(x)]
+            gene_ids_raw = [normalize(x) for x in (row.get("gene_ids") or "").split("|") if normalize(x)]
+            gene_ids: set[str] = set()
+            for gid in gene_ids_raw:
+                gene_ids.update(gene_id_alias_variants(gid, include_unprefixed_numeric=False))
             writer.writerow(
                 {
                     "accession": acc,
                     "aliases": "|".join(sorted(set(aliases))),
                     "gene": normalize(row.get("gene") or ""),
+                    "gene_ids": "|".join(sorted(gene_ids)),
                     "source": normalize(row.get("source") or ""),
                 }
             )
@@ -2794,9 +2849,10 @@ def fetch_json(url: str, timeout: float) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
-def parse_uniprot_entry_aliases(entry: dict[str, Any]) -> tuple[list[str], str]:
+def parse_uniprot_entry_aliases(entry: dict[str, Any]) -> tuple[list[str], str, list[str]]:
     aliases: set[str] = set()
     gene_primary = ""
+    gene_ids: set[str] = set()
 
     mnemonic = normalize(entry.get("uniProtkbId") or "")
     if mnemonic:
@@ -2858,6 +2914,35 @@ def parse_uniprot_entry_aliases(entry: dict[str, Any]) -> tuple[list[str], str]:
                         if value:
                             aliases.add(value)
 
+    cross_refs = entry.get("uniProtKBCrossReferences") or entry.get("dbReferences") or []
+    if isinstance(cross_refs, list):
+        for ref in cross_refs:
+            if not isinstance(ref, dict):
+                continue
+            db = norm_key(ref.get("database") or ref.get("type") or "")
+            id_values: list[str] = []
+            ref_id = normalize(ref.get("id") or "")
+            if ref_id:
+                id_values.append(ref_id)
+            properties = ref.get("properties") or []
+            if isinstance(properties, list):
+                for prop in properties:
+                    if not isinstance(prop, dict):
+                        continue
+                    value = normalize(prop.get("value") or "")
+                    if value:
+                        id_values.append(value)
+            if db == "ensembl":
+                for raw in id_values:
+                    for gid in gene_id_alias_variants(raw, include_unprefixed_numeric=False):
+                        if gid.startswith("ENSG"):
+                            gene_ids.add(gid)
+            elif db in {"geneid", "entrez gene", "ncbigene"}:
+                for raw in id_values:
+                    for gid in gene_id_alias_variants(raw, include_unprefixed_numeric=False):
+                        if gid.startswith(("NCBIGENE:", "GENEID:", "ENTREZ:")):
+                            gene_ids.add(gid)
+
     protein_desc = entry.get("proteinDescription") or {}
     if isinstance(protein_desc, dict):
         add_name_block(protein_desc.get("recommendedName") or {})
@@ -2882,7 +2967,29 @@ def parse_uniprot_entry_aliases(entry: dict[str, Any]) -> tuple[list[str], str]:
                     for alt in section_alt_names:
                         add_name_block(alt)
 
-    return sorted(aliases), gene_primary
+    return sorted(aliases), gene_primary, sorted(gene_ids)
+
+
+def fetch_uniprot_alias_payloads(
+    accessions: list[str],
+    *,
+    timeout: float,
+    workers: int,
+) -> list[tuple[str, list[str], str, list[str], bool]]:
+    def fetch_one(acc: str) -> tuple[str, list[str], str, list[str], bool]:
+        try:
+            entry = fetch_json(UNIPROT_ENTRY_URL.format(acc=acc), timeout=timeout)
+            aliases, gene, gene_ids = parse_uniprot_entry_aliases(entry)
+            if not aliases and not gene and not gene_ids:
+                return acc, [], "", [], False
+            return acc, aliases, gene, gene_ids, True
+        except Exception:
+            return acc, [], "", [], False
+
+    if workers <= 1:
+        return [fetch_one(acc) for acc in accessions]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(fetch_one, accessions))
 
 
 def enrich_uniprot_aliases_for_queries(
@@ -2904,25 +3011,9 @@ def enrich_uniprot_aliases_for_queries(
     if not missing:
         return 0, 0
 
-    def fetch_one(acc: str) -> tuple[str, list[str], str, bool]:
-        try:
-            entry = fetch_json(UNIPROT_ENTRY_URL.format(acc=acc), timeout=timeout)
-            aliases, gene = parse_uniprot_entry_aliases(entry)
-            if not aliases and not gene:
-                return acc, [], "", False
-            return acc, aliases, gene, True
-        except Exception:
-            return acc, [], "", False
-
     added = 0
     failed = 0
-    if workers <= 1:
-        results = [fetch_one(acc) for acc in missing]
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(fetch_one, missing))
-
-    for acc, aliases, gene, ok in results:
+    for acc, aliases, gene, gene_ids, ok in fetch_uniprot_alias_payloads(missing, timeout=timeout, workers=workers):
         if not ok:
             failed += 1
             continue
@@ -2930,6 +3021,15 @@ def enrich_uniprot_aliases_for_queries(
             "accession": acc,
             "aliases": "|".join(sorted(set(aliases))),
             "gene": normalize(gene),
+            "gene_ids": "|".join(
+                sorted(
+                    {
+                        gid
+                        for raw in gene_ids
+                        for gid in gene_id_alias_variants(raw, include_unprefixed_numeric=False)
+                    }
+                )
+            ),
             "source": source_tag,
         }
         added += 1
@@ -2937,6 +3037,74 @@ def enrich_uniprot_aliases_for_queries(
     if added > 0:
         write_uniprot_alias_records(alias_path, records)
     return added, failed
+
+
+def backfill_uniprot_gene_ids(
+    *,
+    alias_path: Path,
+    timeout: float,
+    workers: int,
+    source_tag: str,
+    refresh_all: bool = False,
+) -> tuple[int, int, int]:
+    records = load_uniprot_alias_records(alias_path)
+    if not records:
+        return 0, 0, 0
+
+    targets: list[str] = []
+    for acc in sorted(records):
+        has_gene_ids = bool(parse_pipe_list(records[acc].get("gene_ids") or ""))
+        if refresh_all or not has_gene_ids:
+            targets.append(acc)
+    if not targets:
+        return 0, 0, 0
+
+    updated = 0
+    failed = 0
+    for acc, aliases, gene, gene_ids, ok in fetch_uniprot_alias_payloads(targets, timeout=timeout, workers=workers):
+        if not ok:
+            failed += 1
+            continue
+        record = records.get(acc) or {"accession": acc, "aliases": "", "gene": "", "gene_ids": "", "source": ""}
+        before = (
+            normalize(record.get("aliases") or ""),
+            normalize(record.get("gene") or ""),
+            normalize(record.get("gene_ids") or ""),
+            normalize(record.get("source") or ""),
+        )
+        merged_aliases = sorted(
+            set(parse_pipe_list(record.get("aliases") or "")) | {normalize(a) for a in aliases if normalize(a)}
+        )
+        merged_gene_ids = sorted(
+            set(parse_pipe_list(record.get("gene_ids") or ""))
+            | {
+                gid
+                for raw in gene_ids
+                for gid in gene_id_alias_variants(raw, include_unprefixed_numeric=False)
+            }
+        )
+        merged_gene = normalize(record.get("gene") or "") or normalize(gene)
+        merged_sources = sorted(set(parse_pipe_list(record.get("source") or "")) | ({source_tag} if source_tag else set()))
+
+        records[acc] = {
+            "accession": acc,
+            "aliases": "|".join(merged_aliases),
+            "gene": merged_gene,
+            "gene_ids": "|".join(merged_gene_ids),
+            "source": "|".join(merged_sources),
+        }
+        after = (
+            normalize(records[acc].get("aliases") or ""),
+            normalize(records[acc].get("gene") or ""),
+            normalize(records[acc].get("gene_ids") or ""),
+            normalize(records[acc].get("source") or ""),
+        )
+        if after != before:
+            updated += 1
+
+    if updated > 0:
+        write_uniprot_alias_records(alias_path, records)
+    return updated, failed, len(targets)
 
 
 def build_index(
@@ -2991,6 +3159,7 @@ def build_index(
     alias_accession_index: dict[str, set[str]] = {}
     alias_loose_index: dict[str, set[str]] = {}
     symbol_accession_index: dict[str, set[str]] = {}
+    gene_id_accession_index: dict[str, set[str]] = {}
     for acc, aliases in accession_aliases.items():
         alias_accession_index.setdefault(norm_key(acc), set()).add(acc)
         acc_loose = loose_key(acc)
@@ -3010,6 +3179,8 @@ def build_index(
                 symbol_key = symbol_query_key(alias_variant)
                 if symbol_key:
                     symbol_accession_index.setdefault(symbol_key, set()).add(acc)
+                for gid in gene_id_alias_variants(alias_variant, include_unprefixed_numeric=False):
+                    gene_id_accession_index.setdefault(norm_key(gid), set()).add(acc)
 
     metabolite_concept_index: dict[str, dict[str, Any]] = {}
     metabolite_id_concept_index: dict[str, set[str]] = {}
@@ -3056,7 +3227,7 @@ def build_index(
                     metabolite_alias_loose_index.setdefault(loose, set()).add(concept)
 
     return {
-        "version": "4",
+        "version": "5",
         "built_at": datetime.now(UTC).isoformat(),
         "term_meta": term_meta,
         "exact_term_index": {k: sorted(v) for k, v in exact_term_index.items()},
@@ -3068,6 +3239,7 @@ def build_index(
         "alias_accession_index": {k: sorted(v) for k, v in alias_accession_index.items()},
         "alias_loose_index": {k: sorted(v) for k, v in alias_loose_index.items()},
         "symbol_accession_index": {k: sorted(v) for k, v in symbol_accession_index.items()},
+        "gene_id_accession_index": {k: sorted(v) for k, v in gene_id_accession_index.items()},
         "metabolite_concept_index": metabolite_concept_index,
         "metabolite_id_concept_index": {k: sorted(v) for k, v in metabolite_id_concept_index.items()},
         "metabolite_alias_concept_index": {k: sorted(v) for k, v in metabolite_alias_concept_index.items()},
@@ -3117,6 +3289,7 @@ def load_index(path: Path) -> dict[str, Any]:
         alias_accession_index: dict[str, set[str]] = {}
         alias_loose_index: dict[str, set[str]] = {}
         symbol_accession_index: dict[str, set[str]] = {}
+        gene_id_accession_index: dict[str, set[str]] = {}
         accession_aliases = index.get("accession_alias_index") or {}
         if isinstance(accession_aliases, dict):
             for acc, aliases in accession_aliases.items():
@@ -3142,12 +3315,20 @@ def load_index(path: Path) -> dict[str, Any]:
                             symbol_key = symbol_query_key(alias_variant)
                             if symbol_key:
                                 symbol_accession_index.setdefault(symbol_key, set()).add(acc_clean)
+                            for gid in gene_id_alias_variants(alias_variant, include_unprefixed_numeric=False):
+                                gene_id_accession_index.setdefault(norm_key(gid), set()).add(acc_clean)
         index["alias_accession_index"] = {k: sorted(v) for k, v in alias_accession_index.items()}
         index["alias_loose_index"] = {k: sorted(v) for k, v in alias_loose_index.items()}
         index["symbol_accession_index"] = {k: sorted(v) for k, v in symbol_accession_index.items()}
-    elif "symbol_accession_index" not in index or "alias_loose_index" not in index:
+        index["gene_id_accession_index"] = {k: sorted(v) for k, v in gene_id_accession_index.items()}
+    elif (
+        "symbol_accession_index" not in index
+        or "alias_loose_index" not in index
+        or "gene_id_accession_index" not in index
+    ):
         alias_loose_index: dict[str, set[str]] = {}
         symbol_accession_index: dict[str, set[str]] = {}
+        gene_id_accession_index: dict[str, set[str]] = {}
         accession_aliases = index.get("accession_alias_index") or {}
         if isinstance(accession_aliases, dict):
             for acc, aliases in accession_aliases.items():
@@ -3169,8 +3350,11 @@ def load_index(path: Path) -> dict[str, Any]:
                             symbol_key = symbol_query_key(alias_variant)
                             if symbol_key:
                                 symbol_accession_index.setdefault(symbol_key, set()).add(acc_clean)
+                            for gid in gene_id_alias_variants(alias_variant, include_unprefixed_numeric=False):
+                                gene_id_accession_index.setdefault(norm_key(gid), set()).add(acc_clean)
         index["alias_loose_index"] = {k: sorted(v) for k, v in alias_loose_index.items()}
         index["symbol_accession_index"] = {k: sorted(v) for k, v in symbol_accession_index.items()}
+        index["gene_id_accession_index"] = {k: sorted(v) for k, v in gene_id_accession_index.items()}
 
     if "metabolite_concept_index" not in index:
         index["metabolite_concept_index"] = {}
@@ -4152,10 +4336,17 @@ def strict_query_tokens(query: str) -> frozenset[str]:
     return frozenset(toks)
 
 
-def resolve_query_accessions(query: str, index: dict[str, Any]) -> tuple[list[str], bool, bool]:
+def resolve_query_accessions(query: str, index: dict[str, Any], input_type: str = "auto") -> tuple[list[str], bool, bool]:
     # Returns: (resolved accessions, used_alias_resolution, ambiguous_alias_resolution)
+    # Composite ratio-like analyte strings (for example MUFA/PUFA, ApoB/ApoA1 ratio)
+    # should not collapse to a single protein accession via alias expansion.
+    if query_requests_ratio(query):
+        return [], False, False
+
+    input_kind = normalize_input_type(input_type)
     accession_index = index.get("alias_accession_index", {})
     symbol_index = index.get("symbol_accession_index", {})
+    gene_id_index = index.get("gene_id_accession_index", {})
     loose_index = index.get("alias_loose_index", {})
     accession_scores: dict[str, int] = {}
     used_alias_resolution = False
@@ -4166,6 +4357,28 @@ def resolve_query_accessions(query: str, index: dict[str, Any]) -> tuple[list[st
         acc = canonical_accession(variant)
         if acc:
             return [acc], False, False
+
+    gene_id_query_variants: set[str] = set()
+    for variant in variants:
+        for gid in gene_id_alias_variants(
+            variant,
+            include_unprefixed_numeric=(input_kind == "gene_id"),
+        ):
+            gene_id_query_variants.add(gid)
+
+    if gene_id_query_variants:
+        for gid in sorted(gene_id_query_variants):
+            hits = gene_id_index.get(norm_key(gid), [])
+            if not hits:
+                continue
+            used_alias_resolution = True
+            for hit in hits:
+                hit_norm = normalize(hit).upper()
+                if hit_norm:
+                    accession_scores[hit_norm] = accession_scores.get(hit_norm, 0) + 10
+    elif input_kind == "gene_id":
+        # For explicit gene-id input, avoid falling back to symbol/name heuristics.
+        return [], False, False
 
     factor_symbol = coag_factor_symbol_key(query, index)
     if factor_symbol:
@@ -4729,7 +4942,11 @@ def candidates_from_index(
 
     candidates: dict[str, Candidate] = {}
     input_type_norm = normalize_input_type(input_type)
-    resolved_accessions, used_alias_resolution, _ambiguous_alias_resolution = resolve_query_accessions(query, index)
+    resolved_accessions, used_alias_resolution, _ambiguous_alias_resolution = resolve_query_accessions(
+        query,
+        index,
+        input_type=input_type_norm,
+    )
     resolved_metabolites, used_met_alias_resolution, ambiguous_met_alias_resolution = resolve_query_metabolite_concepts(
         query, index
     )
@@ -4769,6 +4986,7 @@ def candidates_from_index(
         strict_query_tokens(query)
         if (
             name_mode == "strict"
+            and input_type_norm != "gene_id"
             and (
                 (route == "protein" and not is_accession_input and not is_symbol_input)
                 or (route == "metabolite" and not is_metabolite_id_input)
@@ -5426,7 +5644,11 @@ def lexical_probe_candidates(
     exact_term_index: dict[str, list[str]] = index.get("exact_term_index", {})
     token_index: dict[str, list[str]] = index.get("token_index", {})
     candidates: dict[str, Candidate] = {}
-    resolved_accessions, _used_alias_resolution, _ambiguous_alias_resolution = resolve_query_accessions(query, index)
+    resolved_accessions, _used_alias_resolution, _ambiguous_alias_resolution = resolve_query_accessions(
+        query,
+        index,
+        input_type=input_type,
+    )
     resolved_metabolites, _used_met_alias_resolution, _ambiguous_met_alias_resolution = resolve_query_metabolite_concepts(
         query, index
     )
@@ -5530,7 +5752,11 @@ def infer_review_reason(
 ) -> tuple[str, str, list[str], list[Candidate]]:
     query = normalize(query)
     effective_mode = effective_name_mode(name_mode, input_type)
-    resolved_accessions, used_alias_resolution, ambiguous_alias_resolution = resolve_query_accessions(query, index)
+    resolved_accessions, used_alias_resolution, ambiguous_alias_resolution = resolve_query_accessions(
+        query,
+        index,
+        input_type=input_type,
+    )
     resolved_metabolites, used_met_alias_resolution, ambiguous_met_alias_resolution = resolve_query_metabolite_concepts(
         query, index
     )
@@ -6476,6 +6702,38 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Rebuild index from bundled caches (default: on)",
     )
 
+    p_uniprot = sub.add_parser(
+        "uniprot-alias-enrich",
+        help="Backfill gene IDs (and aliases) in UniProt alias cache via UniProt REST",
+    )
+    p_uniprot.add_argument(
+        "--uniprot-aliases",
+        default=str(DEFAULT_UNIPROT_ALIASES),
+        help="UniProt alias TSV path to enrich in place",
+    )
+    p_uniprot.add_argument(
+        "--timeout",
+        type=float,
+        default=20.0,
+        help="Timeout per UniProt request (seconds)",
+    )
+    p_uniprot.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Parallel workers for UniProt API fetches",
+    )
+    p_uniprot.add_argument(
+        "--source",
+        default="uniprot-live-backfill",
+        help="Source tag written into updated UniProt alias rows",
+    )
+    p_uniprot.add_argument(
+        "--refresh-all",
+        action="store_true",
+        help="Refresh all accessions, not only rows missing gene IDs",
+    )
+
     p_met_alias = sub.add_parser(
         "metabolite-alias-build",
         help=(
@@ -6828,6 +7086,7 @@ def main() -> int:
                     f"[OK] built index at {index_path} "
                     f"(terms={len(index.get('term_meta', {}))}, "
                     f"accessions={len(index.get('accession_alias_index', {}))}, "
+                    f"gene_id_keys={len(index.get('gene_id_accession_index', {}))}, "
                     f"metabolite_concepts={len(index.get('metabolite_concept_index', {}))})"
                 )
             else:
@@ -6842,6 +7101,20 @@ def main() -> int:
                 f"(protein_aliases={len(uniprot_aliases)}, "
                 f"metabolite_concepts={len(metabolite_alias_records)}, "
                 f"trait_records={len(trait_cache_index.get('records', []))})"
+            )
+            return 0
+
+        if args.command == "uniprot-alias-enrich":
+            updated, failed, targets = backfill_uniprot_gene_ids(
+                alias_path=Path(args.uniprot_aliases),
+                timeout=float(args.timeout),
+                workers=max(1, int(args.workers)),
+                source_tag=normalize(args.source),
+                refresh_all=bool(args.refresh_all),
+            )
+            print(
+                f"[OK] UniProt alias enrichment complete (targets={targets}, updated={updated}, failed={failed}) "
+                f"-> {args.uniprot_aliases}"
             )
             return 0
 
@@ -6862,6 +7135,7 @@ def main() -> int:
                 f"(terms={len(index.get('term_meta', {}))}, "
                 f"analyte_keys={len(index.get('analyte_index', {}))}, "
                 f"accessions={len(index.get('accession_alias_index', {}))}, "
+                f"gene_id_keys={len(index.get('gene_id_accession_index', {}))}, "
                 f"metabolite_concepts={len(index.get('metabolite_concept_index', {}))})"
             )
             return 0
@@ -6895,6 +7169,7 @@ def main() -> int:
                     f"(terms={len(index.get('term_meta', {}))}, "
                     f"analyte_keys={len(index.get('analyte_index', {}))}, "
                     f"accessions={len(index.get('accession_alias_index', {}))}, "
+                    f"gene_id_keys={len(index.get('gene_id_accession_index', {}))}, "
                     f"metabolite_concepts={len(index.get('metabolite_concept_index', {}))})"
                 )
             return 0
@@ -7000,6 +7275,7 @@ def main() -> int:
                     f"(terms={len(index.get('term_meta', {}))}, "
                     f"analyte_keys={len(index.get('analyte_index', {}))}, "
                     f"accessions={len(index.get('accession_alias_index', {}))}, "
+                    f"gene_id_keys={len(index.get('gene_id_accession_index', {}))}, "
                     f"metabolite_concepts={len(index.get('metabolite_concept_index', {}))})"
                 )
             else:
