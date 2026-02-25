@@ -405,6 +405,7 @@
         <a class="jump-link" href="#first-time-setup">1. Setup Details (Novice)</a>
         <a class="jump-link" href="#input-file">2. Input File</a>
         <a class="jump-link" href="#copy-paste-cells">3. Copy-Paste Commands</a>
+        <a class="jump-link" href="#mapping-method">Mapping Logic</a>
         <a class="jump-link" href="#additional-options">4. Additional Options</a>
       </div>
     </section>
@@ -593,8 +594,40 @@ Coronary artery disease	trait_text</pre>
         <div class="btn-row">
           <button class="btn primary copy-btn" type="button" data-copy-target="map-cmd-traits">Copy Trait Command</button>
         </div>
+        <p class="note">Trait cache QC is automatic: cache IDs are checked against <code>efo.obo</code>, obsolete IDs are remapped where possible, and unresolved IDs are warned and excluded.</p>
 
       </article>
+    </section>
+
+    <section class="card stage-map" id="mapping-method">
+      <h2>How Mapping Works</h2>
+      <p>Deterministic identity is always preferred; lexical fallback is used only when needed.</p>
+      <h3>1) Cache sources used by runtime</h3>
+      <ul>
+        <li><code>uniprot_aliases.tsv</code> (bundled source) -> <code>uniprot_aliases_light.tsv</code> (generated default for speed).</li>
+        <li><code>metabolite_aliases.tsv</code> (bundled HMDB-derived aliases, optionally rebuilt from pinned HMDB SDF).</li>
+        <li><code>trait_mapping_cache.tsv</code> (bundled curated trait cache).</li>
+        <li><code>efo_measurement_terms_cache.tsv</code> (bundled measurement terms, refreshable via <code>refresh-efo-cache</code>).</li>
+        <li><code>measurement_index.json</code> (local compiled index from setup).</li>
+      </ul>
+      <h3>2) Mapping order and method</h3>
+      <ul>
+        <li><strong>Protein/metabolite <code>map</code>:</strong> resolve IDs first (UniProt/HMDB/ChEBI/KEGG), then exact/synonym term hits, then token/lexical fallback, then validation gates.</li>
+        <li><strong>Trait <code>trait-map</code>:</strong> cache exact ICD10 -> cache exact PheCode -> cache exact text -> cache fuzzy text (if no ontology-exact) -> exact <code>efo.obo</code> -> fuzzy <code>efo.obo</code>.</li>
+      </ul>
+      <h3>3) Validation</h3>
+      <ul>
+        <li>Identity checks: accession/concept consistency blocks near-name collisions.</li>
+        <li>Context checks: default blood context allows blood/plasma/unlabeled and excludes serum unless added.</li>
+        <li>Safeguards: ratio terms require ratio-like query intent; weak lexical-only matches are withheld.</li>
+        <li>Trait cache QC: cache ontology IDs are checked against <code>efo.obo</code>; obsolete IDs are remapped where possible and unresolved IDs are excluded from auto output.</li>
+      </ul>
+      <h3>4) Withheld triage</h3>
+      <ul>
+        <li>Enable with <code>--withheld-triage-output final_output/withheld_for_review_triage.tsv</code>.</li>
+        <li>Rows are classified as <code>reject_high</code>, <code>review_needed</code>, <code>accept_medium</code>, or <code>accept_high</code>.</li>
+        <li>Includes query label and suggested mapped label/subject for quick manual QC.</li>
+      </ul>
     </section>
 
     <section class="card workflow-banner stage-optional" id="additional-options">

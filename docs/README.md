@@ -35,6 +35,15 @@ Bundled offline caches used by setup:
 
 These are local repository files; setup does not download these caches from the internet.
 
+Cache provenance and refresh/build path:
+- `uniprot_aliases.tsv`: bundled source alias cache in repo; setup builds `uniprot_aliases_light.tsv` by default for faster mapping.
+- `uniprot_aliases_light.tsv`: generated locally by `setup-bundled-caches` (or `uniprot-alias-build-light`), optional online enrichment via `uniprot-alias-enrich`.
+- `metabolite_aliases.tsv`: bundled HMDB-derived alias cache in repo; can be rebuilt from your pinned HMDB SDF via `metabolite-alias-build`.
+- `trait_mapping_cache.tsv`: bundled curated disease/phenotype cache in repo.
+- `efo_measurement_terms_cache.tsv`: bundled measurement-term cache in repo; can be rebuilt from OBO via `refresh-efo-cache`.
+- `measurement_index.json`: local compiled index built from caches by `setup-bundled-caches` or `index-build`.
+- `efo.obo`: local ontology file used by `trait-map` for fallback and obsolete-ID checks.
+
 Optional (recommended if you plan to use `input_type=gene_id` heavily): backfill UniProt gene IDs into the lightweight cache during setup:
 
 ```bash
@@ -96,30 +105,56 @@ Notes:
 - This mode is cache-first (curated trait cache), then falls back to `efo.obo`.
 - Input can include free-text trait, ICD10, and/or PheCode columns.
 - Output includes a per-row `provenance` field suitable for curation notes tabs.
+- Before mapping, trait cache IDs are checked against `efo.obo`; obsolete IDs are remapped via `replaced_by` (or single `consider`) where possible, and unresolved IDs are warned and excluded from auto output.
 
-How mapping works (accession vs name input):
+How mapping works (order and method):
 
-- Accession input (`UniProt`, `HMDB`, `ChEBI`, `KEGG`) is treated as highest-confidence identity input.
-- For UniProt accessions, the mapper canonicalizes the accession (for example `P12345-2` to `P12345`), resolves aliases from local UniProt alias resources, then searches EFO/OBA labels and synonyms.
-- For gene symbol / gene ID / UniProt mnemonic inputs, the mapper first tries to resolve to a stable UniProt accession; if successful, it uses the same accession-based identity checks.
-- For free-text protein or metabolite names, the mapper uses synonym/lexical retrieval, then stricter validation gates to avoid family-member drift.
-- EFO/OBA matching uses normalized exact phrase matches first, then token retrieval + lexical reranking as fallback.
-- Token retrieval means candidate generation by shared informative words/tokens between your query aliases and EFO/OBA labels/synonyms.
-- Lexical reranking means scoring those token-retrieved candidates (string similarity + token overlap + synonym evidence, plus matrix/subject adjustments) and ordering best-to-worst before validation.
+- Protein/metabolite `map` order:
+  - Normalize query + infer/resolve input type.
+  - Try deterministic identity resolution first:
+    - proteins: UniProt accession, gene symbol/gene ID/mnemonic -> accession
+    - metabolites: HMDB/ChEBI/KEGG IDs, concept aliases
+  - Retrieve candidate EFO/OBA measurement terms (exact label/synonym and indexed lexical/token retrieval).
+  - Rerank candidates by lexical score + identity/context signals.
+  - Validate candidate identity/context gates; emit validated rows.
+  - If best candidate is plausible but blocked by validation, write to withheld/review outputs (if enabled).
 
-Validation and context filters:
+- Trait `trait-map` order:
+  - Exact cache hit by ICD10.
+  - Exact cache hit by PheCode.
+  - Exact cache hit by reported trait text.
+  - Cache fuzzy text (only when no ontology-exact match exists).
+  - Exact `efo.obo` label/synonym match.
+  - Fuzzy `efo.obo` fallback.
+  - Before all cache-based trait mapping, cache ontology IDs are checked against `efo.obo`; obsolete IDs are remapped (via `replaced_by` or single `consider`) or excluded.
 
-- Identity validation: accession/concept-aware subject checks reduce wrong mappings from near-name collisions (for example numeric family mismatches like protein 1 vs protein 4).
-- Context validation: `--measurement-context blood` (default) allows blood/plasma/unlabeled and excludes serum unless `--additional-contexts serum` is set.
-- Keyword context add-on: `--additional-context-keywords` can allow extra free-text contexts (for example `aorta`).
-- Ratio safeguard: ratio/quotient traits are blocked unless the query explicitly requests a ratio.
-- Auto-validation gate: lower-confidence token-only hits are withheld unless they pass stricter criteria; use `--withheld-triage-output` to route these into a triaged review file.
+Validation:
+
+- Identity validation:
+  - proteins: accession/alias subject checks prevent near-name drift (including number mismatches).
+  - metabolites: HMDB/ChEBI/KEGG concept consistency checks prevent concept collisions.
+- Context validation:
+  - default `--measurement-context blood`: allows blood/plasma/unlabeled; excludes serum unless explicitly added.
+  - `--additional-contexts` and `--additional-context-keywords` can expand allowed matrices/tissues.
+- Structural safeguards:
+  - ratio terms are blocked unless the query indicates ratio/composite intent.
+  - lower-confidence lexical-only candidates are withheld from auto-validated output.
+
+Withheld triage flow:
+
+- Enable with `--withheld-triage-output final_output/withheld_for_review_triage.tsv`.
+- Mapper writes non-auto-validated top candidates there with triage status:
+  - `reject_high`: likely wrong target.
+  - `review_needed`: unresolved identity.
+  - `accept_medium`: moderate support.
+  - `accept_high`: strong support.
+- Triage includes query label + suggested mapped label/subject to support fast manual QC.
 
 Practical expectation:
 
-- Accession-based input is usually most reliable.
-- Gene/symbol input can be reliable when alias resolution is unique.
-- Free-text name input is more variable and should be reviewed via `withheld_for_review_triage.tsv` and optionally `review_queue.tsv`.
+- Accession/ID inputs are most reliable.
+- Gene symbol/gene ID are reliable when resolution to a unique accession succeeds.
+- Free-text names are useful but should be treated as review-first for edge cases.
 
 Run mapping (mixed protein + metabolite inputs):
 

@@ -457,6 +457,15 @@ TRAIT_NEGATION_CUES = {
     "no",
     "minus",
 }
+TRAIT_MULTI_CONNECTOR_RE = re.compile(r"(?:\b(?:and|or|vs|versus)\b|/|\\|,)")
+TRAIT_MULTI_HINT_TOKENS = {
+    "combined",
+    "pleiotropy",
+    "multitrait",
+    "multi",
+    "comorbidity",
+    "comorbidities",
+}
 TRAIT_CANONICAL_SIMILARITY_SUBS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bnon\s+high\s+density\s+lipoprotein\b"), "non hdl"),
     (re.compile(r"\bhigh\s+density\s+lipoprotein\b"), "hdl"),
@@ -558,6 +567,14 @@ class TraitOntologyTerm:
     term_id: str
     label: str
     synonyms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TraitObsoleteTerm:
+    term_id: str
+    label: str
+    replaced_by: tuple[str, ...]
+    consider: tuple[str, ...]
 
 
 class ProgressReporter:
@@ -1300,6 +1317,44 @@ def trait_negation_mismatch(query_text: str, candidate_text: str) -> bool:
     return bool((q_neg & c_toks) or (c_neg & q_toks))
 
 
+def trait_looks_multi_concept(text: str) -> bool:
+    key = normalize_trait_text_for_similarity(text)
+    if not key:
+        return False
+    if TRAIT_MULTI_CONNECTOR_RE.search(key):
+        return True
+    toks = set(tokenize(key))
+    return bool(toks & TRAIT_MULTI_HINT_TOKENS)
+
+
+def skip_multi_mapped_cache_fuzzy_candidate(
+    *,
+    query_text: str,
+    query_tokens: set[str],
+    record: TraitCacheRecord,
+    mapped_id_count: int | None = None,
+) -> bool:
+    # For single-trait queries, avoid fuzzy promotion of composite cache rows
+    # (e.g. "Crohn's disease or Leprosy") that can inject unrelated terms.
+    count = mapped_id_count if mapped_id_count is not None else len(record.mapped_ids)
+    if count <= 1:
+        return False
+    if not query_tokens:
+        return False
+    if trait_looks_multi_concept(query_text):
+        return False
+
+    candidate_text = record.lookup_text or record.reported_trait
+    if not trait_looks_multi_concept(candidate_text):
+        return False
+
+    candidate_norm = normalize_trait_text_for_similarity(candidate_text)
+    candidate_tokens = informative_trait_tokens(candidate_norm)
+    if not candidate_tokens:
+        return False
+    return query_tokens.issubset(candidate_tokens)
+
+
 def has_disease_hint(text: str) -> bool:
     toks = tokenize(text)
     if any(tok in DISEASE_HINT_TOKENS for tok in toks):
@@ -1485,6 +1540,7 @@ def load_trait_ontology_index(obo_path: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"EFO OBO not found: {obo_path}")
 
     terms: dict[str, TraitOntologyTerm] = {}
+    obsolete_terms: dict[str, TraitObsoleteTerm] = {}
     exact_index: dict[str, set[str]] = {}
     token_index: dict[str, set[str]] = {}
     token_freq: Counter[str] = Counter()
@@ -1493,15 +1549,21 @@ def load_trait_ontology_index(obo_path: Path) -> dict[str, Any]:
     current_label = ""
     current_synonyms: list[str] = []
     current_obsolete = False
+    current_replaced_by: list[str] = []
+    current_consider: list[str] = []
     in_term = False
 
     def flush_term() -> None:
         nonlocal current_id, current_label, current_synonyms, current_obsolete
-        if not current_id or current_obsolete or not current_label:
+        nonlocal current_replaced_by, current_consider
+
+        if not current_id:
             current_id = ""
             current_label = ""
             current_synonyms = []
             current_obsolete = False
+            current_replaced_by = []
+            current_consider = []
             return
 
         prefix = trait_ontology_prefix(current_id)
@@ -1510,6 +1572,52 @@ def load_trait_ontology_index(obo_path: Path) -> dict[str, Any]:
             current_label = ""
             current_synonyms = []
             current_obsolete = False
+            current_replaced_by = []
+            current_consider = []
+            return
+
+        if current_obsolete:
+            replaced_by: list[str] = []
+            for item in current_replaced_by:
+                oid = canonicalize_trait_ontology_id(item)
+                if not oid:
+                    continue
+                if trait_ontology_prefix(oid) not in TRAIT_PREFERRED_PREFIX_ORDER:
+                    continue
+                if oid not in replaced_by:
+                    replaced_by.append(oid)
+
+            consider: list[str] = []
+            for item in current_consider:
+                oid = canonicalize_trait_ontology_id(item)
+                if not oid:
+                    continue
+                if trait_ontology_prefix(oid) not in TRAIT_PREFERRED_PREFIX_ORDER:
+                    continue
+                if oid not in consider:
+                    consider.append(oid)
+
+            obsolete_terms[current_id] = TraitObsoleteTerm(
+                term_id=current_id,
+                label=normalize(current_label),
+                replaced_by=tuple(replaced_by),
+                consider=tuple(consider),
+            )
+            current_id = ""
+            current_label = ""
+            current_synonyms = []
+            current_obsolete = False
+            current_replaced_by = []
+            current_consider = []
+            return
+
+        if not current_label:
+            current_id = ""
+            current_label = ""
+            current_synonyms = []
+            current_obsolete = False
+            current_replaced_by = []
+            current_consider = []
             return
 
         term = TraitOntologyTerm(
@@ -1533,6 +1641,8 @@ def load_trait_ontology_index(obo_path: Path) -> dict[str, Any]:
         current_label = ""
         current_synonyms = []
         current_obsolete = False
+        current_replaced_by = []
+        current_consider = []
 
     with obo_path.open("r", encoding="utf-8", errors="ignore") as handle:
         for raw_line in handle:
@@ -1555,16 +1665,116 @@ def load_trait_ontology_index(obo_path: Path) -> dict[str, Any]:
                 match = re.match(r'^synonym:\s+"(.+?)"\s+(?:EXACT|BROAD|NARROW|RELATED)\b', line)
                 if match:
                     current_synonyms.append(match.group(1).strip())
+            elif line.startswith("replaced_by: "):
+                current_replaced_by.append(line.split(":", 1)[1].strip())
+            elif line.startswith("consider: "):
+                current_consider.append(line.split(":", 1)[1].strip())
             elif line.startswith("is_obsolete: "):
                 current_obsolete = line.split(":", 1)[1].strip().lower() == "true"
 
     flush_term()
     return {
         "terms": terms,
+        "obsolete_terms": obsolete_terms,
         "exact_index": exact_index,
         "token_index": token_index,
         "token_freq": token_freq,
     }
+
+
+def build_trait_cache_term_resolution(
+    trait_cache_index: dict[str, Any],
+    ontology_index: dict[str, Any],
+    *,
+    issue_sample_limit: int = 8,
+) -> tuple[dict[int, tuple[tuple[str, ...], tuple[str, ...]]], dict[str, int], list[str]]:
+    records: list[TraitCacheRecord] = trait_cache_index.get("records", [])
+    ontology_terms: dict[str, TraitOntologyTerm] = ontology_index.get("terms", {})
+    obsolete_terms: dict[str, TraitObsoleteTerm] = ontology_index.get("obsolete_terms", {})
+
+    resolution: dict[int, tuple[tuple[str, ...], tuple[str, ...]]] = {}
+    stats: dict[str, int] = {
+        "records_total": len(records),
+        "rows_with_obsolete_ids": 0,
+        "rows_with_unresolved_ids": 0,
+        "rows_without_active_terms": 0,
+        "ids_total": 0,
+        "ids_active": 0,
+        "ids_obsolete": 0,
+        "ids_obsolete_replaced_by": 0,
+        "ids_obsolete_consider_single": 0,
+        "ids_obsolete_unresolved": 0,
+        "ids_unknown": 0,
+    }
+    issues: list[str] = []
+
+    for rec in records:
+        resolved_ids: list[str] = []
+        row_has_obsolete = False
+        row_has_unresolved = False
+
+        for raw_id in rec.mapped_ids:
+            oid = canonicalize_trait_ontology_id(raw_id)
+            if not oid:
+                continue
+            stats["ids_total"] += 1
+            if oid in ontology_terms:
+                stats["ids_active"] += 1
+                if oid not in resolved_ids:
+                    resolved_ids.append(oid)
+                continue
+
+            obsolete_meta = obsolete_terms.get(oid)
+            if obsolete_meta is not None:
+                row_has_obsolete = True
+                stats["ids_obsolete"] += 1
+
+                replacements = [rid for rid in obsolete_meta.replaced_by if rid in ontology_terms]
+                if replacements:
+                    stats["ids_obsolete_replaced_by"] += 1
+                    for rid in replacements:
+                        if rid not in resolved_ids:
+                            resolved_ids.append(rid)
+                    continue
+
+                consider = [cid for cid in obsolete_meta.consider if cid in ontology_terms]
+                if len(consider) == 1:
+                    stats["ids_obsolete_consider_single"] += 1
+                    cid = consider[0]
+                    if cid not in resolved_ids:
+                        resolved_ids.append(cid)
+                    continue
+
+                stats["ids_obsolete_unresolved"] += 1
+                row_has_unresolved = True
+                if len(issues) < issue_sample_limit:
+                    issues.append(
+                        f"row {rec.rownum}: unresolved obsolete id {oid} "
+                        f"for '{rec.reported_trait or rec.lookup_text}'"
+                    )
+                continue
+
+            stats["ids_unknown"] += 1
+            row_has_unresolved = True
+            if len(issues) < issue_sample_limit:
+                issues.append(
+                    f"row {rec.rownum}: id {oid} not found in ontology "
+                    f"for '{rec.reported_trait or rec.lookup_text}'"
+                )
+
+        if row_has_obsolete:
+            stats["rows_with_obsolete_ids"] += 1
+        if row_has_unresolved:
+            stats["rows_with_unresolved_ids"] += 1
+
+        if not resolved_ids:
+            stats["rows_without_active_terms"] += 1
+            continue
+
+        resolved_labels = tuple(ontology_terms[oid].label for oid in resolved_ids)
+        resolution[rec.rownum] = (tuple(resolved_ids), resolved_labels)
+
+    return resolution, stats, issues
 
 
 def pick_seed_tokens(tokens: set[str], token_freq: Counter[str], max_tokens: int = 6) -> list[str]:
@@ -1596,14 +1806,25 @@ def collapse_trait_cache_candidates(
     score: float,
     matched_on: str,
     validated_if_unique: bool,
+    record_resolver: Any | None = None,
 ) -> list[Candidate]:
     grouped: dict[tuple[str, str], list[TraitCacheRecord]] = {}
     for record in records:
-        mapped_ids = "|".join(record.mapped_ids)
-        mapped_labels = "|".join(record.mapped_labels)
+        if record_resolver is not None:
+            resolved = record_resolver(record)
+            if not resolved:
+                continue
+            resolved_ids, resolved_labels = resolved
+            mapped_ids = "|".join(resolved_ids)
+            mapped_labels = "|".join(resolved_labels)
+        else:
+            mapped_ids = "|".join(record.mapped_ids)
+            mapped_labels = "|".join(record.mapped_labels)
         grouped.setdefault((mapped_ids, mapped_labels), []).append(record)
 
     unique_count = len(grouped)
+    if unique_count == 0:
+        return []
     candidates: list[Candidate] = []
     for (mapped_ids, mapped_labels), rows in grouped.items():
         source_rows = ",".join(str(row.rownum) for row in rows[:10])
@@ -1665,11 +1886,24 @@ def make_trait_provenance(
     )
 
 
+def trait_candidate_prefix_rank(candidate_id: str) -> int:
+    parts = split_multi_ids(candidate_id)
+    if not parts:
+        return 999
+    best = 999
+    for part in parts:
+        rank = TRAIT_PREFERRED_PREFIX_ORDER.get(trait_ontology_prefix(part), 999)
+        if rank < best:
+            best = rank
+    return best
+
+
 def map_trait_queries(
     query_inputs: list[dict[str, str]],
     *,
     trait_cache_index: dict[str, Any],
     ontology_index: dict[str, Any],
+    trait_cache_resolution: dict[int, tuple[tuple[str, ...], tuple[str, ...]]] | None,
     trait_cache_path: Path,
     efo_obo_path: Path,
     top_k: int,
@@ -1688,6 +1922,14 @@ def map_trait_queries(
     ontology_exact_index: dict[str, set[str]] = ontology_index["exact_index"]
     ontology_token_index: dict[str, set[str]] = ontology_index["token_index"]
     ontology_token_freq: Counter[str] = ontology_index["token_freq"]
+    cache_resolution = trait_cache_resolution or {}
+
+    def resolve_record(record: TraitCacheRecord) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+        if cache_resolution:
+            return cache_resolution.get(record.rownum)
+        if not record.mapped_ids:
+            return None
+        return record.mapped_ids, record.mapped_labels
 
     rows: list[dict[str, str]] = []
     progress = ProgressReporter(total=len(query_inputs), enabled=show_progress)
@@ -1725,6 +1967,7 @@ def map_trait_queries(
         query_norm = norm_key(query)
         query_match_norm = normalize_trait_text_for_similarity(query)
         query_tokens = informative_trait_tokens(query_match_norm or query_norm)
+        has_ontology_exact = bool(query_norm and ontology_exact_index.get(query_norm))
         candidates: list[Candidate] = []
         best_any: list[Candidate] = []
 
@@ -1737,6 +1980,7 @@ def map_trait_queries(
                     score=1.0,
                     matched_on="ICD10",
                     validated_if_unique=True,
+                    record_resolver=resolve_record,
                 )
             )
 
@@ -1749,6 +1993,7 @@ def map_trait_queries(
                     score=0.99,
                     matched_on="PheCode",
                     validated_if_unique=True,
+                    record_resolver=resolve_record,
                 )
             )
 
@@ -1761,10 +2006,11 @@ def map_trait_queries(
                     score=0.97,
                     matched_on="Reported trait text",
                     validated_if_unique=True,
+                    record_resolver=resolve_record,
                 )
             )
 
-        if not candidates and query_tokens:
+        if not candidates and query_tokens and not has_ontology_exact:
             seed_tokens = pick_seed_tokens(query_tokens, cache_token_freq, max_tokens=6)
             candidate_idxs: set[int] = set()
             for tok in seed_tokens:
@@ -1772,6 +2018,17 @@ def map_trait_queries(
             scored_cache: list[tuple[float, TraitCacheRecord]] = []
             for rec_idx in candidate_idxs:
                 rec = records[rec_idx]
+                resolved_mapping = resolve_record(rec)
+                if not resolved_mapping:
+                    continue
+                resolved_ids, _resolved_labels = resolved_mapping
+                if skip_multi_mapped_cache_fuzzy_candidate(
+                    query_text=query_match_norm,
+                    query_tokens=query_tokens,
+                    record=rec,
+                    mapped_id_count=len(resolved_ids),
+                ):
+                    continue
                 score_a = trait_similarity_score(query_match_norm, query_tokens, rec.reported_trait)
                 score_b = trait_similarity_score(query_match_norm, query_tokens, rec.lookup_text)
                 score = max(score_a, score_b)
@@ -1786,13 +2043,18 @@ def map_trait_queries(
                     score=max(scored_cache[0][0], min_score) if scored_cache else 0.0,
                     matched_on="cache lexical candidate set",
                     validated_if_unique=False,
+                    record_resolver=resolve_record,
                 )
             )
             for score, rec in scored_cache[: max(3, top_k * 4)]:
                 if score < min_score:
                     continue
-                mapped_ids = "|".join(rec.mapped_ids)
-                mapped_labels = "|".join(rec.mapped_labels)
+                resolved_mapping = resolve_record(rec)
+                if not resolved_mapping:
+                    continue
+                resolved_ids, resolved_labels = resolved_mapping
+                mapped_ids = "|".join(resolved_ids)
+                mapped_labels = "|".join(resolved_labels)
                 candidates.append(
                     Candidate(
                         efo_id=mapped_ids,
@@ -1890,6 +2152,7 @@ def map_trait_queries(
             key=lambda candidate: (
                 candidate.score,
                 -via_rank.get(candidate.matched_via, 999),
+                -trait_candidate_prefix_rank(candidate.efo_id),
                 candidate.efo_id,
             ),
             reverse=True,
@@ -7598,11 +7861,44 @@ def main() -> int:
             efo_obo_path = Path(args.efo_obo)
             trait_cache_index = load_trait_cache_index(trait_cache_path)
             ontology_index = load_trait_ontology_index(efo_obo_path)
+            cache_resolution, cache_qc_stats, cache_qc_issues = build_trait_cache_term_resolution(
+                trait_cache_index,
+                ontology_index,
+            )
+            rows_with_obsolete_ids = cache_qc_stats.get("rows_with_obsolete_ids", 0)
+            rows_with_unresolved_ids = cache_qc_stats.get("rows_with_unresolved_ids", 0)
+            rows_without_active_terms = cache_qc_stats.get("rows_without_active_terms", 0)
+
+            if rows_with_unresolved_ids > 0 or rows_without_active_terms > 0:
+                print(
+                    "[WARN] trait cache ontology QC: "
+                    f"rows_with_obsolete_ids={rows_with_obsolete_ids}, "
+                    f"rows_with_unresolved_ids={rows_with_unresolved_ids}, "
+                    f"rows_without_active_terms={rows_without_active_terms}, "
+                    f"ids_obsolete_replaced_by={cache_qc_stats.get('ids_obsolete_replaced_by', 0)}"
+                )
+                for issue in cache_qc_issues:
+                    print(f"[WARN] {issue}")
+            elif rows_with_obsolete_ids > 0:
+                print(
+                    "[OK] trait cache ontology QC: "
+                    f"rows_checked={cache_qc_stats.get('records_total', 0)}; "
+                    f"obsolete_rows_auto_remapped={rows_with_obsolete_ids}; "
+                    f"ids_obsolete_replaced_by={cache_qc_stats.get('ids_obsolete_replaced_by', 0)}; "
+                    "unresolved=0"
+                )
+            else:
+                print(
+                    "[OK] trait cache ontology QC: "
+                    f"rows_checked={cache_qc_stats.get('records_total', 0)}; "
+                    "no obsolete/unresolved ontology IDs in cache rows"
+                )
 
             rows = map_trait_queries(
                 query_inputs,
                 trait_cache_index=trait_cache_index,
                 ontology_index=ontology_index,
+                trait_cache_resolution=cache_resolution,
                 trait_cache_path=trait_cache_path,
                 efo_obo_path=efo_obo_path,
                 top_k=max(1, args.top_k),
