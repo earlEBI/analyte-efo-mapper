@@ -330,6 +330,7 @@ DEFAULT_ANALYTE_CACHE = Path(__file__).resolve().parents[1] / "references" / "an
 DEFAULT_TERM_CACHE = Path(__file__).resolve().parents[1] / "references" / "efo_measurement_terms_cache.tsv"
 DEFAULT_INDEX = Path(__file__).resolve().parents[1] / "references" / "measurement_index.json"
 DEFAULT_UNIPROT_ALIASES = Path(__file__).resolve().parents[1] / "references" / "uniprot_aliases.tsv"
+DEFAULT_UNIPROT_ALIASES_LIGHT = Path(__file__).resolve().parents[1] / "references" / "uniprot_aliases_light.tsv"
 DEFAULT_METABOLITE_ALIASES = Path(__file__).resolve().parents[1] / "references" / "metabolite_aliases.tsv"
 DEFAULT_METABOLITE_DOWNLOAD_DIR = Path(__file__).resolve().parents[1] / "references" / "metabolite_downloads"
 DEFAULT_HMDB_LOCAL_DIR = Path(__file__).resolve().parents[1] / "references" / "hmdb_source"
@@ -2183,6 +2184,52 @@ def write_uniprot_alias_records(path: Path, records: dict[str, dict[str, str]]) 
                     "source": normalize(row.get("source") or ""),
                 }
             )
+
+
+def build_lightweight_uniprot_alias_cache(
+    *,
+    source_path: Path,
+    output_path: Path,
+    reviewed_only: bool = True,
+    require_gene: bool = True,
+    add_source_tag: str = "lightweight-cache-build",
+) -> tuple[int, int]:
+    records = load_uniprot_alias_records(source_path)
+    if not records:
+        raise ValueError(f"No UniProt alias rows found in source: {source_path}")
+
+    lightweight: dict[str, dict[str, str]] = {}
+    for acc in sorted(records):
+        row = records[acc]
+        if reviewed_only and not is_reviewed_like_accession(acc):
+            continue
+        gene = normalize(row.get("gene") or "")
+        if require_gene and not gene:
+            continue
+
+        aliases = set(parse_pipe_list(row.get("aliases") or ""))
+        if gene:
+            aliases.add(gene)
+        clean_aliases = sorted({normalize(a) for a in aliases if normalize(a)})
+
+        gene_ids: set[str] = set()
+        for raw in parse_pipe_list(row.get("gene_ids") or row.get("gene_id") or ""):
+            gene_ids.update(gene_id_alias_variants(raw, include_unprefixed_numeric=False))
+
+        source_values = set(parse_pipe_list(row.get("source") or ""))
+        if add_source_tag:
+            source_values.add(add_source_tag)
+
+        lightweight[acc] = {
+            "accession": acc,
+            "aliases": "|".join(clean_aliases),
+            "gene": gene,
+            "gene_ids": "|".join(sorted(gene_ids)),
+            "source": "|".join(sorted(source_values)),
+        }
+
+    write_uniprot_alias_records(output_path, lightweight)
+    return len(records), len(lightweight)
 
 
 def parse_pipe_list(value: str) -> list[str]:
@@ -6671,6 +6718,57 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Bundled protein alias cache TSV path",
     )
     p_setup.add_argument(
+        "--uniprot-profile",
+        choices=["light", "full"],
+        default="light",
+        help=(
+            "UniProt cache profile for setup index build. light: build reviewed+gene lightweight cache "
+            "(faster, recommended). full: use bundled full alias cache directly."
+        ),
+    )
+    p_setup.add_argument(
+        "--uniprot-light-output",
+        default=str(DEFAULT_UNIPROT_ALIASES_LIGHT),
+        help="Output path for generated lightweight UniProt alias cache",
+    )
+    p_setup.add_argument(
+        "--uniprot-light-reviewed-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="For lightweight profile: keep reviewed-like accessions only (default: on)",
+    )
+    p_setup.add_argument(
+        "--uniprot-light-require-gene",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="For lightweight profile: require non-empty primary gene symbol (default: on)",
+    )
+    p_setup.add_argument(
+        "--uniprot-light-enrich-gene-ids",
+        action="store_true",
+        help=(
+            "For lightweight profile: backfill missing UniProt gene_ids online after cache build "
+            "(optional, can take time)."
+        ),
+    )
+    p_setup.add_argument(
+        "--uniprot-timeout",
+        type=float,
+        default=20.0,
+        help="Timeout per UniProt request used by optional enrichment (seconds)",
+    )
+    p_setup.add_argument(
+        "--uniprot-workers",
+        type=int,
+        default=8,
+        help="Parallel workers used by optional UniProt enrichment",
+    )
+    p_setup.add_argument(
+        "--uniprot-source",
+        default="uniprot-live-backfill",
+        help="Source tag for UniProt enrichment rows",
+    )
+    p_setup.add_argument(
         "--metabolite-aliases",
         default=str(DEFAULT_METABOLITE_ALIASES),
         help="Bundled metabolite alias cache TSV path",
@@ -6732,6 +6830,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--refresh-all",
         action="store_true",
         help="Refresh all accessions, not only rows missing gene IDs",
+    )
+
+    p_uniprot_light = sub.add_parser(
+        "uniprot-alias-build-light",
+        help="Build lightweight UniProt alias cache (reviewed+gene focused) from source TSV",
+    )
+    p_uniprot_light.add_argument(
+        "--source",
+        default=str(DEFAULT_UNIPROT_ALIASES),
+        help="Source UniProt alias TSV path",
+    )
+    p_uniprot_light.add_argument(
+        "--output",
+        default=str(DEFAULT_UNIPROT_ALIASES_LIGHT),
+        help="Output lightweight UniProt alias TSV path",
+    )
+    p_uniprot_light.add_argument(
+        "--reviewed-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep reviewed-like accessions only (default: on)",
+    )
+    p_uniprot_light.add_argument(
+        "--require-gene",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require non-empty primary gene symbol (default: on)",
     )
 
     p_met_alias = sub.add_parser(
@@ -7041,7 +7166,9 @@ def main() -> int:
         if args.command == "setup-bundled-caches":
             term_cache_path = Path(args.term_cache)
             analyte_cache_path = Path(args.analyte_cache)
-            uniprot_alias_path = Path(args.uniprot_aliases)
+            uniprot_alias_source_path = Path(args.uniprot_aliases)
+            uniprot_profile = normalize(args.uniprot_profile)
+            uniprot_light_output_path = Path(args.uniprot_light_output)
             metabolite_alias_path = Path(args.metabolite_aliases)
             trait_cache_path = Path(args.trait_cache)
             index_path = Path(args.index)
@@ -7057,7 +7184,7 @@ def main() -> int:
             required_paths = [
                 ("term_cache", term_cache_path),
                 ("analyte_cache", analyte_cache_path),
-                ("uniprot_aliases", uniprot_alias_path),
+                ("uniprot_aliases", uniprot_alias_source_path),
                 ("metabolite_aliases", metabolite_alias_path),
                 ("trait_cache", trait_cache_path),
             ]
@@ -7070,7 +7197,37 @@ def main() -> int:
 
             term_rows = load_term_cache(term_cache_path)
             analyte_rows = load_analyte_cache(analyte_cache_path)
-            uniprot_aliases = load_uniprot_aliases(uniprot_alias_path)
+            uniprot_alias_index_path = uniprot_alias_source_path
+            light_total = 0
+            light_kept = 0
+            if uniprot_profile == "light":
+                light_total, light_kept = build_lightweight_uniprot_alias_cache(
+                    source_path=uniprot_alias_source_path,
+                    output_path=uniprot_light_output_path,
+                    reviewed_only=bool(args.uniprot_light_reviewed_only),
+                    require_gene=bool(args.uniprot_light_require_gene),
+                )
+                uniprot_alias_index_path = uniprot_light_output_path
+                print(
+                    f"[OK] built lightweight UniProt cache at {uniprot_alias_index_path} "
+                    f"(source_rows={light_total}, kept_rows={light_kept}, "
+                    f"reviewed_only={bool(args.uniprot_light_reviewed_only)}, "
+                    f"require_gene={bool(args.uniprot_light_require_gene)})"
+                )
+                if args.uniprot_light_enrich_gene_ids:
+                    updated, failed, targets = backfill_uniprot_gene_ids(
+                        alias_path=uniprot_alias_index_path,
+                        timeout=float(args.uniprot_timeout),
+                        workers=max(1, int(args.uniprot_workers)),
+                        source_tag=normalize(args.uniprot_source),
+                        refresh_all=False,
+                    )
+                    print(
+                        f"[OK] lightweight UniProt gene_id enrichment complete "
+                        f"(targets={targets}, updated={updated}, failed={failed})"
+                    )
+
+            uniprot_aliases = load_uniprot_aliases(uniprot_alias_index_path)
             metabolite_alias_records = load_metabolite_alias_records(metabolite_alias_path)
             trait_cache_index = load_trait_cache_index(trait_cache_path)
 
@@ -7098,9 +7255,27 @@ def main() -> int:
 
             print(
                 "[OK] bundled cache setup complete "
-                f"(protein_aliases={len(uniprot_aliases)}, "
+                f"(uniprot_profile={uniprot_profile}, "
+                f"uniprot_alias_path={uniprot_alias_index_path}, "
+                f"protein_aliases={len(uniprot_aliases)}, "
                 f"metabolite_concepts={len(metabolite_alias_records)}, "
                 f"trait_records={len(trait_cache_index.get('records', []))})"
+            )
+            return 0
+
+        if args.command == "uniprot-alias-build-light":
+            source_path = Path(args.source)
+            output_path = Path(args.output)
+            total, kept = build_lightweight_uniprot_alias_cache(
+                source_path=source_path,
+                output_path=output_path,
+                reviewed_only=bool(args.reviewed_only),
+                require_gene=bool(args.require_gene),
+            )
+            print(
+                f"[OK] wrote lightweight UniProt cache to {output_path} "
+                f"(source_rows={total}, kept_rows={kept}, reviewed_only={bool(args.reviewed_only)}, "
+                f"require_gene={bool(args.require_gene)})"
             )
             return 0
 

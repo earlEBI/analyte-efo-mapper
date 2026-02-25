@@ -475,7 +475,16 @@ analyte-efo-mapper setup-bundled-caches</pre>
         The final command in each setup block validates bundled protein/metabolite/trait caches and builds the local index without internet downloads.
       </div>
       <div class="note">
-        If you plan to map many <code>gene_id</code> inputs, run once after setup: <code>analyte-efo-mapper uniprot-alias-enrich --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv --workers 8</code>
+        Setup uses a lightweight UniProt profile by default (reviewed-like + requires gene symbol) and writes
+        <code>skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv</code>.
+      </div>
+      <div class="note">
+        If you need the full bundled UniProt cache for setup/indexing, run:
+        <code>analyte-efo-mapper setup-bundled-caches --uniprot-profile full</code>
+      </div>
+      <div class="note">
+        If you plan to map many <code>gene_id</code> inputs, run once after setup:
+        <code>analyte-efo-mapper uniprot-alias-enrich --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv --workers 8</code>
       </div>
       <div class="note">
         Run all mapper commands with <code>analyte-efo-mapper ...</code>. Upgrade flow: <code>git pull</code> then <code>python -m pip install -e .</code>.
@@ -657,10 +666,13 @@ Coronary artery disease	trait_text</pre>
         <li>Useful optional flags: <code>--top-k</code>, <code>--min-score</code>, <code>--workers</code>, <code>--name-mode</code>, <code>--entity-type</code>, <code>--auto-enrich-uniprot</code>, <code>--metabolite-aliases</code>, <code>--unmapped-output</code>, <code>--review-queue-output</code>, <code>--withheld-triage-output</code>.</li>
       </ul>
       <div class="note">
-        <code>--auto-enrich-uniprot</code> is incremental: it fetches missing aliases only for accession-like queries in your current input, writes them to <code>uniprot_aliases.tsv</code>, then rebuilds the index. It is not a full UniProt rebuild.
+        <code>--auto-enrich-uniprot</code> is incremental: it fetches missing aliases only for accession-like queries in your current input, writes them to the file set by <code>--uniprot-aliases</code>, then rebuilds the index. It is not a full UniProt rebuild.
+        If you are using lightweight setup, pass <code>--uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv</code>.
       </div>
       <div class="note">
-        For full gene-ID coverage in your local UniProt cache, run: <code>analyte-efo-mapper uniprot-alias-enrich --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv --workers 8</code> (add <code>--refresh-all</code> to refresh every accession row).
+        For full gene-ID coverage in your local lightweight UniProt cache, run:
+        <code>analyte-efo-mapper uniprot-alias-enrich --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv --workers 8</code>
+        (add <code>--refresh-all</code> to refresh every accession row).
       </div>
     </section>
 

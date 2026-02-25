@@ -5,3 +5,4 @@ __pycache__/
 final_output/
 data/
 skills/pqtl-measurement-mapper/references/efo.obo
+skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv

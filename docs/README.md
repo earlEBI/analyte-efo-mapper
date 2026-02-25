@@ -21,6 +21,13 @@ cp docs/input_template.tsv data/analytes.tsv
 analyte-efo-mapper setup-bundled-caches
 ```
 
+By default, setup now builds and uses a lightweight UniProt cache for indexing
+(reviewed-like accessions, gene symbol required) at:
+`skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv`
+
+To force setup to use the full bundled UniProt cache instead:
+`analyte-efo-mapper setup-bundled-caches --uniprot-profile full`
+
 Bundled offline caches used by setup:
 - `skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv` (protein alias cache)
 - `skills/pqtl-measurement-mapper/references/metabolite_aliases.tsv` (metabolite HMDB-derived alias cache)
@@ -28,12 +35,26 @@ Bundled offline caches used by setup:
 
 These are local repository files; setup does not download these caches from the internet.
 
-Optional (recommended if you plan to use `input_type=gene_id` heavily): backfill UniProt gene IDs into the local alias cache:
+Optional (recommended if you plan to use `input_type=gene_id` heavily): backfill UniProt gene IDs into the lightweight cache during setup:
+
+```bash
+analyte-efo-mapper setup-bundled-caches --uniprot-light-enrich-gene-ids
+```
+
+Or run enrichment explicitly:
 
 ```bash
 analyte-efo-mapper uniprot-alias-enrich \
-  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv \
+  --uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv \
   --workers 8
+```
+
+If you want to rebuild the lightweight cache manually:
+
+```bash
+analyte-efo-mapper uniprot-alias-build-light \
+  --source skills/pqtl-measurement-mapper/references/uniprot_aliases.tsv \
+  --output skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv
 ```
 
 CLI command and upgrade:
@@ -55,7 +76,8 @@ analyte-efo-mapper map \
 ```
 
 This writes your main results to `final_output/analytes_efo.tsv` and triaged withheld candidates to `final_output/withheld_for_review_triage.tsv`.
-`setup-bundled-caches` is offline/local only and validates the bundled protein, metabolite, and trait caches.
+`setup-bundled-caches` is offline/local by default and validates bundled caches.
+If you add `--uniprot-light-enrich-gene-ids`, setup will also perform optional online UniProt backfill.
 
 Disease/phenotype trait mapping mode (optional):
 
@@ -264,9 +286,13 @@ Useful optional arguments:
 - `--workers` parallel workers.
 - `--name-mode strict|fuzzy` handling for name-like inputs.
 - `--entity-type auto|protein|metabolite` routing/validation mode.
-- `--auto-enrich-uniprot` checks UniProt for accession-like queries missing from your local alias file, appends returned aliases to `uniprot_aliases.tsv`, and rebuilds index before mapping.
+- `--auto-enrich-uniprot` checks UniProt for accession-like queries missing from your local alias file, appends returned aliases to the file set by `--uniprot-aliases`, and rebuilds index before mapping.
   - It is incremental for current input queries, not a full UniProt rebuild.
-- `uniprot-alias-enrich` backfills missing UniProt gene IDs (and aliases) across your existing `uniprot_aliases.tsv` cache.
+  - If you are using the lightweight setup profile, pass `--uniprot-aliases skills/pqtl-measurement-mapper/references/uniprot_aliases_light.tsv`.
+- `setup-bundled-caches` default UniProt profile is `light` (reviewed-like + requires gene symbol) for faster index build.
+- `setup-bundled-caches --uniprot-profile full` uses the full bundled UniProt alias cache.
+- `uniprot-alias-build-light` creates/refreshes a lightweight UniProt cache from a source alias TSV.
+- `uniprot-alias-enrich` backfills missing UniProt gene IDs (and aliases) across a chosen UniProt alias cache file (for example `uniprot_aliases_light.tsv`).
   - Use `--refresh-all` if you want to refresh all rows, not only rows with empty `gene_ids`.
 - `--metabolite-aliases` local metabolite concept aliases for HMDB/ChEBI/KEGG/name resolution.
 - `--unmapped-output` write unresolved rows to a separate TSV.
